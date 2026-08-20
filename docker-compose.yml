@@ -36,6 +36,9 @@ services:
       - REDIS_URL=redis:6379
       - JWT_SECRET=${JWT_SECRET:-dev-jwt-secret-change-in-prod}
       - AGENT_SECRET=${AGENT_SECRET:-dev-agent-secret-change-in-prod}
+      - SEED_ADMIN_EMAIL=${SEED_ADMIN_EMAIL:-admin@serverpilot.local}
+      - SEED_ADMIN_PASSWORD=${SEED_ADMIN_PASSWORD:-changeme}
+      - SEED_ADMIN_NAME=${SEED_ADMIN_NAME:-Admin}
     ports:
       - "8081:8081"
     depends_on:

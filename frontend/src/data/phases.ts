@@ -95,10 +95,10 @@ http://localhost:5173` },
   {
     id: '1b',
     title: 'Auth + Database Schema',
-    status: 'next',
-    summary: 'JWT authentication, database migrations with golang-migrate, users table, login/logout endpoints, and protected routes on both frontend and backend.',
+    status: 'done',
+    summary: 'JWT authentication, embedded SQL migrations, users table with bcrypt passwords, login endpoint, and protected routes on both frontend and backend.',
     sections: [
-      { type: 'heading', content: 'What Will Be Built' },
+      { type: 'heading', content: 'What Was Built' },
       { type: 'list', items: [
         'golang-migrate for schema versioning (runs on startup)',
         'users table with bcrypt-hashed passwords',
@@ -132,7 +132,7 @@ http://localhost:5173` },
   {
     id: '2',
     title: 'Agent Registration + Heartbeat',
-    status: 'upcoming',
+    status: 'next',
     summary: 'Lightweight Go agent binary deployed to each managed server. Registers itself, sends heartbeats with CPU/RAM/disk/Docker metrics every 30 seconds. Server status shown live in the dashboard.',
     sections: [
       { type: 'heading', content: 'Agent Architecture' },

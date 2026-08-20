@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import Layout from './components/Layout'
+import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Docs from './pages/Docs'
 import Placeholder from './pages/Placeholder'
@@ -7,6 +8,10 @@ import Placeholder from './pages/Placeholder'
 export default function App() {
   return (
     <Routes>
+      {/* Public — no auth required */}
+      <Route path="/login" element={<Login />} />
+
+      {/* Protected — Layout handles the auth redirect internally */}
       <Route element={<Layout />}>
         <Route index                element={<Dashboard />} />
         <Route path="docs"          element={<Navigate to="/docs/1a" replace />} />

@@ -1,4 +1,5 @@
-import { NavLink } from 'react-router-dom'
+import { NavLink, useNavigate } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
 
 // ── SVG icon components (defined before nav array) ───────────────────────────
 
@@ -16,6 +17,7 @@ function IcoUsers()   { return <svg className={cls} fill="none" stroke="currentC
 function IcoGear()    { return <svg className={cls} fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg> }
 function IcoAudit()   { return <svg className={cls} fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg> }
 function IcoBook()    { return <svg className={cls} fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg> }
+function IcoLogout()  { return <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg> }
 
 // ── Nav definitions ───────────────────────────────────────────────────────────
 
@@ -47,6 +49,14 @@ const linkClass = ({ isActive }: { isActive: boolean }) =>
   }`
 
 export default function Sidebar() {
+  const { user, logout } = useAuth()
+  const navigate = useNavigate()
+
+  const handleLogout = () => {
+    logout()
+    navigate('/login', { replace: true })
+  }
+
   return (
     <aside className="flex flex-col w-56 shrink-0 bg-sp-surface border-r border-sp-border h-screen">
 
@@ -60,7 +70,7 @@ export default function Sidebar() {
         </div>
         <div>
           <p className="text-sm font-bold text-white leading-none">ServerPilot</p>
-          <p className="text-[10px] text-slate-500 leading-none mt-0.5">Local v0.1</p>
+          <p className="text-[10px] text-slate-500 leading-none mt-0.5">Local v0.2</p>
         </div>
       </div>
 
@@ -83,6 +93,28 @@ export default function Sidebar() {
           </NavLink>
         ))}
       </div>
+
+      {/* User section */}
+      {user && (
+        <div className="border-t border-sp-border px-3 py-3">
+          <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-sp-hover transition-colors group">
+            <div className="h-7 w-7 rounded-full bg-sp-accent/20 border border-sp-accent/30 flex items-center justify-center text-sp-accent font-bold text-xs shrink-0">
+              {user.name.charAt(0).toUpperCase()}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium text-slate-300 truncate leading-tight">{user.name}</p>
+              <p className="text-[10px] text-slate-600 truncate leading-tight capitalize">{user.role}</p>
+            </div>
+            <button
+              onClick={handleLogout}
+              title="Sign out"
+              className="text-slate-700 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
+            >
+              <IcoLogout />
+            </button>
+          </div>
+        </div>
+      )}
 
     </aside>
   )

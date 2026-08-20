@@ -35,7 +35,7 @@ const statCards = [
 
 const phases = [
   { id: '1a', label: 'Skeleton + Infrastructure',      done: true  },
-  { id: '1b', label: 'Auth + Database Schema',         done: false },
+  { id: '1b', label: 'Auth + Database Schema',         done: true  },
   { id: '2',  label: 'Agent Registration + Heartbeat', done: false },
   { id: '3',  label: 'Docker Container Management',    done: false },
   { id: '4',  label: 'Application Deployment',         done: false },
