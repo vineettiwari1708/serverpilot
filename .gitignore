@@ -1,0 +1,22 @@
+# Environment
+.env
+.env.local
+*.env
+
+# Go
+backend/serverpilot
+agent/serverpilot-agent
+**/tmp/
+**/vendor/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Docker
+*.log
+
+# OS
+.DS_Store
+Thumbs.db

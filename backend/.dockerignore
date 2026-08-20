@@ -1,0 +1,6 @@
+serverpilot
+tmp/
+*.log
+.env
+.env.*
+!.env.example
