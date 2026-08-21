@@ -14,6 +14,7 @@ import Alerts from './pages/Alerts'
 import Monitoring from './pages/Monitoring'
 import Users from './pages/Users'
 import Settings from './pages/Settings'
+import AuditLog from './pages/AuditLog'
 import Placeholder from './pages/Placeholder'
 
 export default function App() {
@@ -39,7 +40,7 @@ export default function App() {
         <Route path="logs"              element={<Placeholder title="Logs" desc="Container and system logs. Coming in Phase 7." />} />
         <Route path="users"             element={<Users />} />
         <Route path="settings"          element={<Settings />} />
-        <Route path="audit-logs"        element={<Placeholder title="Audit Logs" desc="Action history. Coming in Phase 6." />} />
+        <Route path="audit-logs"          element={<AuditLog />} />
         <Route path="*"                 element={<Placeholder title="404"        desc="Page not found." />} />
       </Route>
     </Routes>

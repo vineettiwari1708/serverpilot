@@ -187,6 +187,40 @@ const MIGRATIONS = [
     `,
   },
   {
+    name: '012_create_audit_events',
+    sql: `
+      CREATE TABLE IF NOT EXISTS audit_events (
+        id          TEXT        PRIMARY KEY DEFAULT gen_random_uuid()::text,
+        user_id     TEXT        REFERENCES users(id) ON DELETE SET NULL,
+        user_name   TEXT        NOT NULL DEFAULT 'system',
+        action      TEXT        NOT NULL,
+        resource    TEXT        NOT NULL DEFAULT '',
+        resource_id TEXT        NOT NULL DEFAULT '',
+        detail      JSONB       DEFAULT '{}',
+        ip          TEXT        DEFAULT '',
+        created_at  TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_events(created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_audit_resource    ON audit_events(resource, resource_id);
+    `,
+  },
+  {
+    name: '013_create_notification_channels',
+    sql: `
+      CREATE TABLE IF NOT EXISTS notification_channels (
+        id          TEXT    PRIMARY KEY DEFAULT gen_random_uuid()::text,
+        name        TEXT    NOT NULL,
+        type        TEXT    NOT NULL CHECK (type IN ('webhook','slack')),
+        url         TEXT    NOT NULL,
+        enabled     BOOLEAN NOT NULL DEFAULT true,
+        on_warning  BOOLEAN NOT NULL DEFAULT false,
+        on_critical BOOLEAN NOT NULL DEFAULT true,
+        on_offline  BOOLEAN NOT NULL DEFAULT true,
+        created_at  TIMESTAMPTZ DEFAULT NOW()
+      );
+    `,
+  },
+  {
     name: '003_create_heartbeats',
     sql: `
       CREATE TABLE IF NOT EXISTS heartbeats (

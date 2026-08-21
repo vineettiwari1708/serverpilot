@@ -3,6 +3,7 @@
 const express         = require('express')
 const bcrypt          = require('bcryptjs')
 const { requireAuth } = require('../auth/middleware')
+const { logAudit }    = require('../audit')
 
 function requireAdmin(req, res, next) {
   if (req.user?.role !== 'admin') return res.status(403).json({ error: 'admin only' })
@@ -41,6 +42,7 @@ module.exports = function usersRouter(pool) {
         VALUES ($1, $2, $3, $4)
         RETURNING id, name, email, role, created_at
       `, [name.trim(), email.trim().toLowerCase(), hash, role || 'viewer'])
+      logAudit(pool, req, 'user.create', 'user', rows[0].id, { email: rows[0].email, role: rows[0].role })
       res.status(201).json({ user: rows[0] })
     } catch (err) {
       if (err.code === '23505') return res.status(409).json({ error: 'email already exists' })
@@ -64,6 +66,7 @@ module.exports = function usersRouter(pool) {
         RETURNING id, name, email, role, created_at
       `, [name || null, role || null, req.params.id])
       if (!rows.length) return res.status(404).json({ error: 'user not found' })
+      logAudit(pool, req, 'user.update', 'user', req.params.id, { name, role })
       res.json({ user: rows[0] })
     } catch (err) {
       res.status(500).json({ error: 'internal server error' })
@@ -78,6 +81,7 @@ module.exports = function usersRouter(pool) {
     try {
       const { rowCount } = await pool.query('DELETE FROM users WHERE id = $1', [req.params.id])
       if (!rowCount) return res.status(404).json({ error: 'user not found' })
+      logAudit(pool, req, 'user.delete', 'user', req.params.id, {})
       res.status(204).end()
     } catch (err) {
       res.status(500).json({ error: 'internal server error' })

@@ -2,6 +2,7 @@
 
 const express         = require('express')
 const { requireAuth } = require('../auth/middleware')
+const { logAudit }    = require('../audit')
 
 module.exports = function containersRouter(pool) {
   const router = express.Router()
@@ -71,6 +72,7 @@ module.exports = function containersRouter(pool) {
         RETURNING *
       `, [req.params.id, req.params.name, action, req.user.email])
 
+      logAudit(pool, req, 'container.action', 'container', req.params.name, { server: req.params.id, action })
       res.json({ command: rows[0] })
     } catch (err) {
       res.status(500).json({ error: 'internal server error' })

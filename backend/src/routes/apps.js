@@ -2,6 +2,7 @@
 
 const express         = require('express')
 const { requireAuth } = require('../auth/middleware')
+const { logAudit }    = require('../audit')
 
 module.exports = function appsRouter(pool) {
   const router = express.Router()
@@ -38,6 +39,7 @@ module.exports = function appsRouter(pool) {
         INSERT INTO applications (name, compose_yaml, health_check_url)
         VALUES ($1, $2, $3) RETURNING *
       `, [name.trim(), compose_yaml, health_check_url || ''])
+      logAudit(pool, req, 'app.create', 'application', rows[0].id, { name: rows[0].name })
       res.status(201).json({ app: rows[0] })
     } catch (err) {
       if (err.code === '23505') return res.status(409).json({ error: 'app name already exists' })
@@ -106,6 +108,7 @@ module.exports = function appsRouter(pool) {
         RETURNING id, status, started_at
       `, [app[0].id, app[0].name, srv[0].id, srv[0].name, app[0].compose_yaml, req.user.email])
 
+      logAudit(pool, req, 'app.deploy', 'deployment', dep[0].id, { app: app[0].name, server: srv[0].name })
       res.status(201).json({ deployment: dep[0] })
     } catch (err) {
       res.status(500).json({ error: 'internal server error' })
@@ -137,6 +140,7 @@ module.exports = function appsRouter(pool) {
       `, [req.params.id, app[0].name, src[0].server_id, src[0].server_name,
           src[0].compose_yaml, req.user.email])
 
+      logAudit(pool, req, 'app.rollback', 'deployment', dep[0].id, { app: app[0].name, from: deployment_id })
       res.status(201).json({ deployment: dep[0] })
     } catch (err) {
       res.status(500).json({ error: 'internal server error' })

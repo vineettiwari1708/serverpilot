@@ -1,5 +1,7 @@
 'use strict'
 
+const { sendNotification } = require('./notify')
+
 const THRESHOLDS = {
   cpu_pct:  { warning: 80, critical: 90 },
   ram_pct:  { warning: 80, critical: 90 },
@@ -24,11 +26,16 @@ async function checkMetricAlerts(pool, serverId, serverName, metrics) {
       if (!rows.length) {
         const limit = severity === 'critical' ? thresh.critical : thresh.warning
         const label = metric.replace(/_/g, ' ')
+        const message = `${label} is ${value.toFixed(1)}% — exceeds ${severity} threshold (${limit}%)`
         await pool.query(`
           INSERT INTO alerts (server_id, server_name, metric, value, threshold, severity, message)
           VALUES ($1, $2, $3, $4, $5, $6, $7)
-        `, [serverId, serverName, metric, value, limit, severity,
-            `${label} is ${value.toFixed(1)}% — exceeds ${severity} threshold (${limit}%)`])
+        `, [serverId, serverName, metric, value, limit, severity, message])
+        sendNotification(pool, {
+          severity,
+          title: `${serverName}: ${label} alert`,
+          body:  message,
+        }).catch(() => {})
       }
     } else {
       // Metric recovered — auto-resolve
@@ -58,12 +65,17 @@ async function checkHeartbeatAlerts(pool) {
         [s.id]
       )
       if (!ex.length) {
-        const limit = severity === 'critical' ? 300 : 90
+        const limit   = severity === 'critical' ? 300 : 90
+        const message = `No heartbeat for ${Math.round(age)}s — server may be offline`
         await pool.query(`
           INSERT INTO alerts (server_id, server_name, metric, value, threshold, severity, message)
           VALUES ($1, $2, 'heartbeat_age', $3, $4, $5, $6)
-        `, [s.id, s.name, Math.round(age), limit, severity,
-            `No heartbeat for ${Math.round(age)}s — server may be offline`])
+        `, [s.id, s.name, Math.round(age), limit, severity, message])
+        sendNotification(pool, {
+          severity: 'offline',
+          title:    `${s.name}: server offline`,
+          body:     message,
+        }).catch(() => {})
       }
     } else {
       await pool.query(`

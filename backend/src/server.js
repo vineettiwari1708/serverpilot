@@ -17,9 +17,11 @@ const serversRouter    = require('./routes/servers')
 const containersRouter = require('./routes/containers')
 const appsRouter       = require('./routes/apps')
 const backupsRouter    = require('./routes/backups')
-const alertsRouter     = require('./routes/alerts')
-const usersRouter      = require('./routes/users')
-const startScheduler   = require('./scheduler')
+const alertsRouter         = require('./routes/alerts')
+const usersRouter          = require('./routes/users')
+const auditRouter          = require('./routes/audit')
+const notificationsRouter  = require('./routes/notifications')
+const startScheduler       = require('./scheduler')
 
 const startTime = Date.now()
 
@@ -72,6 +74,8 @@ async function main() {
   app.use(backupsRouter(pool))
   app.use(alertsRouter(pool))
   app.use(usersRouter(pool))
+  app.use(auditRouter(pool))
+  app.use(notificationsRouter(pool))
 
   startScheduler(pool, logger)
 
