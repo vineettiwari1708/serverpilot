@@ -1,7 +1,7 @@
 # Phase 2 — Agent Registration + Heartbeat
 
-**Status:** UPCOMING  
-**Goal:** Deploy a lightweight Go agent to each managed server. The agent registers itself, sends heartbeats, and reports live metrics. The control panel shows server status in real time.
+**Status:** DONE  
+**Goal:** Deploy a lightweight Node.js agent to each managed server. The agent registers itself, sends heartbeats with live metrics, and syncs container state. The control panel shows server status in real time.
 
 ---
 
@@ -10,55 +10,102 @@
 ```
 Control Server (backend)
         ↑
-        │  POST /api/agent/heartbeat  (every 30s)
         │  POST /api/agent/register   (on startup)
-        │  POST /api/agent/result     (command response)
+        │  POST /api/agent/heartbeat  (every 30s)
         │
-   [sp-agent binary]
+   [agent.js — Node.js built-ins only]
         │
    Docker Host VM
    (Linux, Docker Engine)
 ```
 
-The agent is a **single compiled Go binary** — no runtime, no dependencies to install on the remote server.
+The agent uses **only Node.js built-in modules** (`os`, `http`, `https`, `child_process`, `fs`, `path`) — no `npm install` needed on the remote server. Just copy `agent.js` and run it.
 
 ---
 
-## Agent Heartbeat Payload
+## Registration
+
+On startup the agent calls `POST /api/agent/register` with the shared `AGENT_SECRET`. The server upserts a row in the `servers` table and returns an `agent_token` — all subsequent calls use `Authorization: Agent <token>`.
 
 ```json
+POST /api/agent/register
 {
-  "server_id":       "srv_abc123",
-  "hostname":        "docker-host-1",
-  "ip":              "10.10.0.11",
-  "cpu_percent":     31.2,
-  "memory_percent":  52.4,
-  "memory_total_mb": 1024,
-  "memory_used_mb":  536,
-  "disk_percent":    61.1,
-  "disk_total_gb":   20,
-  "disk_used_gb":    12.2,
-  "load_avg_1m":     0.45,
-  "docker_running":  true,
-  "container_count": 3,
-  "os":              "linux",
-  "arch":            "amd64",
-  "agent_version":   "0.1.0",
-  "timestamp":       "2026-08-20T12:00:00Z"
+  "name":         "docker-host-1",
+  "hostname":     "docker-host-1",
+  "ip":           "10.10.0.11",
+  "agent_secret": "change-this-agent-secret-too"
+}
+
+Response:
+{ "server_id": "abc123", "token": "<agent_token>" }
+```
+
+---
+
+## Heartbeat Payload
+
+```json
+POST /api/agent/heartbeat
+Authorization: Agent <token>
+
+{
+  "cpu_pct":      31,
+  "ram_pct":      52,
+  "docker_count": 3,
+  "containers": [
+    {
+      "name":   "nginx-app",
+      "image":  "nginx:alpine",
+      "status": "Up 2 hours",
+      "ports":  "0.0.0.0:80->80/tcp"
+    }
+  ]
 }
 ```
+
+The control server:
+1. Updates `servers.last_seen = NOW()`
+2. Inserts a row into `heartbeats` with CPU/RAM/disk/docker_count
+3. Upserts container rows (adds new, updates changed, deletes removed)
 
 ---
 
 ## Server Status Rules
 
+Server status is derived at query time from `last_seen`:
+
 | Condition | Status |
 |-----------|--------|
-| Heartbeat received within 90 seconds | ONLINE |
-| No heartbeat for 90–300 seconds | WARNING |
-| No heartbeat for > 300 seconds | OFFLINE |
+| `last_seen` within 90 seconds | ONLINE |
+| `last_seen` 90–300 seconds ago | WARNING |
+| `last_seen` > 300 seconds ago | OFFLINE |
+| Never registered | OFFLINE |
 
-The backend runs a goroutine every 60 seconds that checks all registered servers and updates their status. An alert is created when a server transitions to OFFLINE.
+---
+
+## Database Tables
+
+```sql
+CREATE TABLE servers (
+  id            TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  name          TEXT NOT NULL,
+  hostname      TEXT UNIQUE NOT NULL,
+  ip            TEXT,
+  agent_token   TEXT UNIQUE NOT NULL DEFAULT gen_random_uuid()::text,
+  registered_at TIMESTAMPTZ DEFAULT NOW(),
+  last_seen     TIMESTAMPTZ
+);
+
+CREATE TABLE heartbeats (
+  id           BIGSERIAL PRIMARY KEY,
+  server_id    TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+  cpu_pct      FLOAT,
+  ram_pct      FLOAT,
+  disk_pct     FLOAT,
+  docker_count INT DEFAULT 0,
+  recorded_at  TIMESTAMPTZ DEFAULT NOW()
+);
+```
 
 ---
 
@@ -66,76 +113,35 @@ The backend runs a goroutine every 60 seconds that checks all registered servers
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| POST | `/api/agent/register` | Agent token | First-time registration |
-| POST | `/api/agent/heartbeat` | Agent token | Periodic status update |
-| POST | `/api/agent/result` | Agent token | Command execution result |
-| GET | `/api/servers` | JWT | List all registered servers |
-| GET | `/api/servers/:id` | JWT | Single server detail |
-| GET | `/api/servers/:id/metrics` | JWT | Recent metric history |
+| POST | `/api/agent/register` | Agent secret | First-time registration |
+| POST | `/api/agent/heartbeat` | Agent token | Periodic status update + container sync |
+| GET | `/api/servers` | JWT | List all registered servers with status |
+| GET | `/api/servers/:id` | JWT | Server detail + latest heartbeat + containers |
 
 ---
 
-## Database Tables Added
-
-```sql
-CREATE TABLE servers (
-  id             TEXT PRIMARY KEY,
-  name           TEXT NOT NULL,
-  hostname       TEXT,
-  ip_address     TEXT,
-  status         TEXT DEFAULT 'offline',
-  last_heartbeat TIMESTAMPTZ,
-  registered_at  TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE server_metrics (
-  id         BIGSERIAL PRIMARY KEY,
-  server_id  TEXT REFERENCES servers(id),
-  cpu        FLOAT,
-  memory     FLOAT,
-  disk       FLOAT,
-  recorded_at TIMESTAMPTZ DEFAULT NOW()
-);
-```
-
----
-
-## Agent Package Structure
-
-```
-agent/
-├── cmd/agent/main.go       ← reads config, starts loops
-├── internal/
-│   ├── config/config.go    ← CONTROL_URL, AGENT_SECRET, SERVER_ID
-│   ├── metrics/collect.go  ← CPU, RAM, disk via /proc and syscall
-│   ├── docker/client.go    ← Docker socket status + container count
-│   └── client/api.go       ← HTTP client to call control server
-```
-
----
-
-## Installing the Agent on a VM
+## Running the Agent
 
 ```bash
-# On the target Linux VM
-wget https://your-control-server/agent/download/linux-amd64/sp-agent
-chmod +x sp-agent
+# On the target server (Node.js must be installed)
+AGENT_TOKEN=<token_from_register> \
+CONTROL_URL=http://10.10.0.10:8081 \
+node agent.js
 
-# Create config
-cat > /etc/sp-agent.env <<EOF
-CONTROL_URL=http://10.10.0.10:8081
-AGENT_SECRET=your-agent-secret
-SERVER_NAME=docker-host-1
-EOF
-
-# Run as a systemd service
-./sp-agent --config /etc/sp-agent.env
+# Or register first if no token yet:
+curl -X POST http://10.10.0.10:8081/api/agent/register \
+  -H "Content-Type: application/json" \
+  -d '{"name":"host-1","hostname":"host-1","agent_secret":"your-secret"}'
 ```
+
+Optional env vars:
+- `HEARTBEAT_INTERVAL` — milliseconds between heartbeats (default: `30000`)
+- `DEPLOY_DIR` — base directory for compose files (default: `/opt/serverpilot/apps`)
 
 ---
 
 ## Frontend Changes
 
-- **Servers page**: live table of all agents — name, IP, status badge, CPU %, RAM %, containers, last heartbeat
-- **Dashboard**: stat cards become real (Total, Online, Offline, Containers)
-- Status badges: `ONLINE` (green), `WARNING` (amber), `OFFLINE` (red)
+- **Servers page** — live table of all agents: name, IP, status badge, CPU %, RAM %, container count, last heartbeat
+- **Dashboard** — stat cards become real (Total, Online, Offline, Running Containers)
+- Status badges: `ONLINE` (green pulsing dot), `WARNING` (amber), `OFFLINE` (red)

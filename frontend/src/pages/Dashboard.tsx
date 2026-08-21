@@ -15,7 +15,6 @@ interface StatusData {
   version:        string
   env:            string
   uptime_seconds: number
-  goroutines:     number
   services: {
     postgres: ServiceResult
     redis:    ServiceResult
@@ -116,7 +115,7 @@ export default function Dashboard() {
               name="Backend API"
               status={state === 'loading' ? 'checking' : state === 'error' ? 'error' : 'ok'}
               latency={null}
-              detail={data ? `v${data.version} · ${data.env} · ${data.goroutines} goroutines` : undefined}
+              detail={data ? `v${data.version} · ${data.env}` : undefined}
             />
             <ServiceRow
               name="PostgreSQL"

@@ -66,9 +66,9 @@ Full implementation with tabs:
 The architecture is designed so that **local VMs can be replaced with real servers** without changing the control plane:
 
 1. Provision a real Linux server (cloud VM or physical)
-2. Install the `sp-agent` binary
-3. Set `CONTROL_URL` and `AGENT_SECRET` env vars
-4. Agent registers automatically
+2. Copy `agent.js` to the server (Node.js must be installed)
+3. Set `CONTROL_URL`, `AGENT_SECRET`, and `SERVER_NAME` env vars
+4. Agent registers automatically on first run
 5. Server appears in dashboard within 30 seconds
 
 Tested targets:

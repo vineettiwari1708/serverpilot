@@ -1,13 +1,15 @@
 # Phase 3 — Docker Container Management
 
-**Status:** UPCOMING  
+**Status:** DONE  
 **Goal:** View and control Docker containers running on each managed server, directly from the dashboard.
 
 ---
 
-## What Will Be Built
+## What Was Built
 
-The agent on each server communicates with the **local Docker socket** (`/var/run/docker.sock`) and exposes a safe, audited set of container operations. The control server never touches Docker directly — all operations go through the agent.
+The agent on each server runs `docker ps -a` on every heartbeat and syncs the full container list to the control plane. Container actions (start / stop / restart) are queued in the database and picked up by the agent on its next poll.
+
+The control server **never touches Docker directly** — all operations go through the agent.
 
 ---
 
@@ -15,14 +17,12 @@ The agent on each server communicates with the **local Docker socket** (`/var/ru
 
 | Action | Description |
 |--------|-------------|
-| `list_containers` | List all containers with status and resource usage |
-| `start_container` | Start a stopped container |
-| `stop_container` | Gracefully stop a running container |
-| `restart_container` | Restart a container |
-| `get_logs` | Fetch last N lines of container logs |
-| `inspect_container` | Get container metadata (image, ports, env, mounts) |
+| `start` | Start a stopped container |
+| `stop` | Gracefully stop a running container |
+| `restart` | Restart a container |
 
-> **NOT allowed in Phase 3:** exec into container, run arbitrary commands, delete containers, pull images directly.
+> **Not allowed:** exec into container, run arbitrary shell commands, delete containers, pull images.  
+> Every action is recorded in `container_commands` with user, timestamp, and result.
 
 ---
 
@@ -32,90 +32,79 @@ The agent on each server communicates with the **local Docker socket** (`/var/ru
 Dashboard (user clicks "Stop")
         │
         ▼
-Control Server
-  → Writes command to DB: { action: "stop_container", target: "nginx-app", server: "docker-host-1" }
-  → Sends command to agent over HTTPS
-        │
-        ▼
-Agent on Docker Host 1
-  → Validates action is in allowed list
-  → Calls Docker API locally
-  → Returns result
+POST /api/servers/:id/containers/:name/action
+  { "action": "stop" }
         │
         ▼
 Control Server
-  → Updates command status (SUCCESS / FAILED)
-  → Writes audit log: who, what, when, result
+  → Writes row to container_commands: { status: "pending", action: "stop", container: "nginx-app" }
+        │
+        ▼ (next agent poll, ≤30s)
+Agent on Docker Host
+  → GET /api/agent/commands  (atomically marked "running")
+  → exec: docker stop nginx-app
+  → POST /api/agent/commands/:id/result  { status: "done" }
         │
         ▼
-Dashboard updates
+Dashboard refreshes — container shows new status
 ```
 
 ---
 
-## New API Endpoints
+## API Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/servers/:id/containers` | List containers on a server |
-| POST | `/api/servers/:id/containers/:name/start` | Start container |
-| POST | `/api/servers/:id/containers/:name/stop` | Stop container |
-| POST | `/api/servers/:id/containers/:name/restart` | Restart container |
-| GET | `/api/servers/:id/containers/:name/logs` | Tail logs |
+| GET | `/api/servers/:id` | Server detail + latest heartbeat + containers + last 30 commands |
+| POST | `/api/servers/:id/containers/:name/action` | Queue a start/stop/restart command |
+| GET | `/api/agent/commands` | Agent polls for pending commands (marks them running) |
+| POST | `/api/agent/commands/:id/result` | Agent reports done/error |
 
 ---
 
-## Container List Response
-
-```json
-[
-  {
-    "id":      "a1b2c3d4",
-    "name":    "nginx-app",
-    "image":   "nginx:alpine",
-    "status":  "running",
-    "state":   "Up 2 hours",
-    "cpu":     0.4,
-    "memory":  "24 MiB / 1 GiB",
-    "ports":   ["0.0.0.0:80->80/tcp"],
-    "created": "2026-08-20T10:00:00Z"
-  }
-]
-```
-
----
-
-## Database Tables Added
+## Database Tables
 
 ```sql
 CREATE TABLE containers (
-  id           TEXT PRIMARY KEY,
-  server_id    TEXT REFERENCES servers(id),
-  name         TEXT NOT NULL,
-  image        TEXT,
-  status       TEXT,
-  updated_at   TIMESTAMPTZ DEFAULT NOW()
+  id         TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  server_id  TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+  name       TEXT NOT NULL,
+  image      TEXT NOT NULL,
+  status     TEXT NOT NULL,
+  ports      TEXT DEFAULT '',
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (server_id, name)
 );
 
-CREATE TABLE server_commands (
-  id          BIGSERIAL PRIMARY KEY,
-  server_id   TEXT REFERENCES servers(id),
-  user_id     TEXT REFERENCES users(id),
-  action      TEXT NOT NULL,
-  target      TEXT,
-  payload     JSONB,
-  status      TEXT DEFAULT 'pending',
-  result      JSONB,
-  executed_at TIMESTAMPTZ,
-  created_at  TIMESTAMPTZ DEFAULT NOW()
+CREATE TABLE container_commands (
+  id           TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  server_id    TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+  container    TEXT NOT NULL,
+  action       TEXT NOT NULL CHECK (action IN ('start','stop','restart')),
+  status       TEXT NOT NULL DEFAULT 'pending'
+               CHECK (status IN ('pending','running','done','error')),
+  result       TEXT DEFAULT '',
+  requested_by TEXT,
+  created_at   TIMESTAMPTZ DEFAULT NOW(),
+  updated_at   TIMESTAMPTZ DEFAULT NOW()
 );
 ```
 
 ---
 
-## Frontend Changes
+## Container Sync
 
-- **Server detail page** → Containers tab: table with name, image, status, CPU, memory
-- Per-row action buttons: Start / Stop / Restart / Logs
-- Log viewer: modal with scrollable terminal-style output (dark, monospace)
-- All actions go through confirmation dialog before executing
+The agent sends the full container list with every heartbeat. The control server:
+1. **Upserts** any new or changed containers
+2. **Deletes** rows for containers that no longer exist on the server
+
+This keeps the DB accurate even if containers are started/stopped outside the agent.
+
+---
+
+## Frontend — Server Detail Page
+
+- **Containers table**: name, image, status badge, ports
+- **Per-row buttons**: Start / Stop / Restart (disabled while a command is pending or running)
+- **Recent command log**: last 30 commands with status badges (pending / running / done / error), container name, action, result text
+- Page polls `/api/servers/:id` every 15 seconds

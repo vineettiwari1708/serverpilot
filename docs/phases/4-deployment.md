@@ -1,34 +1,22 @@
 # Phase 4 — Application Deployment
 
-**Status:** UPCOMING  
-**Goal:** Deploy multi-container applications (Docker Compose style) to any managed server from the dashboard, with full deployment history and health checks.
+**Status:** DONE  
+**Goal:** Deploy multi-container applications (Docker Compose) to any managed server from the dashboard, with full deployment history, live logs, and one-click rollback.
 
 ---
 
 ## Application Model
 
-An application is a named unit that groups containers together.
+An application stores a Docker Compose YAML and an optional health check URL.
 
 ```json
 {
-  "id":          "app_demo",
-  "name":        "Demo App",
-  "description": "Full-stack demo: React + Go + Postgres",
-  "version":     "1.2.0",
-  "target_server": "docker-host-1",
-  "compose_yaml":  "...",
-  "env_vars": {
-    "DATABASE_URL": "postgres://...",
-    "APP_ENV": "production"
-  },
-  "health_check": {
-    "path":             "/health",
-    "port":             8080,
-    "interval_seconds": 10,
-    "timeout_seconds":  5,
-    "retries":          3
-  },
-  "desired_state": "running"
+  "id":               "abc123",
+  "name":             "my-app",
+  "compose_yaml":     "version: '3.9'\nservices:\n  app:\n    image: nginx:alpine\n    ports:\n      - '80:80'",
+  "health_check_url": "http://localhost:80/health",
+  "created_at":       "2026-08-21T05:00:00Z",
+  "updated_at":       "2026-08-21T05:00:00Z"
 }
 ```
 
@@ -40,100 +28,95 @@ An application is a named unit that groups containers together.
 PENDING
    │
    ▼
-RUNNING          ← agent pulls image, starts containers
+RUNNING          ← agent pulls images, starts containers via docker compose
    │
    ▼
-HEALTH_CHECK     ← polls health endpoint N times
+HEALTH_CHECK     ← agent polls health_check_url until HTTP 2xx or 60s timeout
    │
-   ├──► SUCCESS  ← health check passed
+   ├──► SUCCESS  ← health check passed (or no health check configured)
    │
-   └──► FAILED   ← health check failed or timeout
-              │
-              ▼
-           ROLLING_BACK  ← restart previous version
+   └──► FAILED   ← docker compose error, or health check timeout
 ```
 
 ---
 
-## New API Endpoints
+## API Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/applications` | List all applications |
-| POST | `/api/applications` | Create application |
-| GET | `/api/applications/:id` | Application detail |
-| PUT | `/api/applications/:id` | Update application |
-| POST | `/api/applications/:id/deploy` | Trigger deployment |
-| POST | `/api/applications/:id/rollback` | Rollback to previous |
-| GET | `/api/deployments` | All deployment history |
-| GET | `/api/deployments/:id` | Deployment detail + logs |
+| GET  | `/api/apps` | List all apps with last deployment status |
+| POST | `/api/apps` | Create app — `{ name, compose_yaml, health_check_url }` |
+| GET  | `/api/apps/:id` | App detail + last 20 deployments |
+| PUT  | `/api/apps/:id` | Update compose YAML or health check URL |
+| POST | `/api/apps/:id/deploy` | Trigger deployment — `{ server_id }` |
+| POST | `/api/apps/:id/rollback` | Re-deploy a previous successful deployment — `{ deployment_id }` |
+| GET  | `/api/deployments/:id` | Full deployment record with log text |
+| GET  | `/api/agent/deployments` | Agent polls for pending deployments |
+| POST | `/api/agent/deployments/:id/log` | Agent appends log lines |
+| POST | `/api/agent/deployments/:id/status` | Agent updates status |
 
 ---
 
 ## Deployment Process
 
-1. User clicks **Deploy** in dashboard
-2. Control server creates a `deployment` record (status: PENDING)
-3. Control server sends `deploy` command to the target agent
-4. Agent pulls Docker images
-5. Agent stops old containers
-6. Agent starts new containers using the compose YAML
-7. Agent polls the health check endpoint
-8. Agent reports SUCCESS or FAILED back to control server
-9. Control server updates deployment record and creates audit log
-10. Dashboard shows live deployment status with log stream
+1. User creates an application with Docker Compose YAML
+2. User clicks **Deploy** and selects a target server
+3. Control server creates a `deployments` row (`status: pending`)
+4. Agent polls `GET /api/agent/deployments` (every 30s) — picks up pending deployments, atomically marks them `running`
+5. Agent writes compose YAML to `/opt/serverpilot/apps/<name>/docker-compose.yml`
+6. Agent runs: `docker compose pull`
+7. Agent runs: `docker compose up -d --remove-orphans`
+8. Agent streams each stdout/stderr line back via `POST /api/agent/deployments/:id/log`
+9. If `health_check_url` is set: agent polls it every 5s for up to 60s, reports `health_check` status
+10. Agent reports `success` or `failed` via `POST /api/agent/deployments/:id/status`
+11. Dashboard shows live log (polls every 3s while active) and final status badge
 
 ---
 
-## Database Tables Added
+## Rollback
+
+Rollback creates a new `pending` deployment using the compose YAML from a previous **successful** deployment. The full deployment process runs again — the agent pulls, restarts, and health-checks the older version.
+
+Only successful deployments can be rolled back to.
+
+---
+
+## Database Tables
 
 ```sql
 CREATE TABLE applications (
-  id            TEXT PRIMARY KEY,
-  name          TEXT NOT NULL,
-  description   TEXT,
-  version       TEXT,
-  server_id     TEXT REFERENCES servers(id),
-  compose_yaml  TEXT,
-  env_vars      JSONB,
-  health_check  JSONB,
-  desired_state TEXT DEFAULT 'stopped',
-  created_at    TIMESTAMPTZ DEFAULT NOW()
+  id               TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  name             TEXT NOT NULL UNIQUE,
+  compose_yaml     TEXT NOT NULL,
+  health_check_url TEXT DEFAULT '',
+  created_at       TIMESTAMPTZ DEFAULT NOW(),
+  updated_at       TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE TABLE deployments (
-  id          TEXT PRIMARY KEY,
-  app_id      TEXT REFERENCES applications(id),
-  server_id   TEXT REFERENCES servers(id),
-  user_id     TEXT REFERENCES users(id),
-  version     TEXT,
-  status      TEXT DEFAULT 'pending',
-  logs        TEXT,
-  started_at  TIMESTAMPTZ,
-  finished_at TIMESTAMPTZ,
-  created_at  TIMESTAMPTZ DEFAULT NOW()
+  id           TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  app_id       TEXT NOT NULL REFERENCES applications(id) ON DELETE CASCADE,
+  app_name     TEXT NOT NULL,
+  server_id    TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+  server_name  TEXT NOT NULL,
+  status       TEXT NOT NULL DEFAULT 'pending'
+               CHECK (status IN ('pending','running','health_check','success','failed','rolling_back','rolled_back')),
+  compose_yaml TEXT NOT NULL,
+  log          TEXT DEFAULT '',
+  deployed_by  TEXT,
+  started_at   TIMESTAMPTZ DEFAULT NOW(),
+  finished_at  TIMESTAMPTZ
 );
+
+CREATE INDEX idx_deployments_app_id    ON deployments(app_id);
+CREATE INDEX idx_deployments_server_id ON deployments(server_id);
+CREATE INDEX idx_deployments_pending   ON deployments(server_id, status) WHERE status = 'pending';
 ```
 
 ---
 
-## Demo Application
+## Frontend Pages
 
-A small demo app ships with Phase 4 for testing:
-
-- **Frontend**: React (nginx image)
-- **Backend**: Go (custom image)
-- **Database**: PostgreSQL
-
-Deployable to Docker Host 1 or Docker Host 2 from the dashboard.
-
----
-
-## Rollback Strategy
-
-Each successful deployment saves the previous compose YAML and image tags. On rollback:
-1. New deployment record created with `ROLLING_BACK` status
-2. Previous compose YAML sent to agent
-3. Agent replaces running containers with previous version
-4. Health check runs on restored version
-5. Status: SUCCESS or FAILED
+- **Applications** (`/applications`) — app list with create form (name, compose YAML, health check URL)
+- **App Detail** (`/applications/:id`) — compose YAML editor, deploy panel (server selector), deployment history table with rollback buttons
+- **Deployment Log** (`/deployments/:id`) — live log viewer that polls every 3s while deployment is active, metadata card (status, server, started/finished)
