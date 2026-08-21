@@ -111,19 +111,80 @@ module.exports = function agentRouter(pool) {
   })
 
   // POST /api/agent/commands/:id/result
-  // Agent reports the outcome of an executed command.
   router.post('/api/agent/commands/:id/result', agentAuth(pool), async (req, res) => {
     const { status, result } = req.body || {}
     if (!['done', 'error'].includes(status)) {
       return res.status(400).json({ error: 'status must be done or error' })
     }
-
     try {
       await pool.query(
         `UPDATE container_commands
          SET status = $1, result = $2, updated_at = NOW()
          WHERE id = $3 AND server_id = $4`,
         [status, result || '', req.params.id, req.server.id]
+      )
+      res.status(204).end()
+    } catch (err) {
+      res.status(500).json({ error: 'internal server error' })
+    }
+  })
+
+  // ── Deployments ─────────────────────────────────────────────
+
+  // GET /api/agent/deployments — agent polls for pending deployments on its server
+  router.get('/api/agent/deployments', agentAuth(pool), async (req, res) => {
+    try {
+      const { rows } = await pool.query(
+        `SELECT d.id, d.app_id, d.app_name, d.compose_yaml,
+                a.health_check_url
+         FROM   deployments d
+         JOIN   applications a ON a.id = d.app_id
+         WHERE  d.server_id = $1 AND d.status = 'pending'
+         ORDER  BY d.started_at`,
+        [req.server.id]
+      )
+      // Mark as running so they're not picked up again
+      if (rows.length > 0) {
+        const ids = rows.map(r => r.id)
+        await pool.query(
+          `UPDATE deployments SET status = 'running' WHERE id = ANY($1)`, [ids]
+        )
+      }
+      res.json({ deployments: rows })
+    } catch (err) {
+      res.status(500).json({ error: 'internal server error' })
+    }
+  })
+
+  // POST /api/agent/deployments/:id/log — agent streams log lines
+  router.post('/api/agent/deployments/:id/log', agentAuth(pool), async (req, res) => {
+    const { lines } = req.body || {}
+    if (!lines) return res.status(400).json({ error: 'lines required' })
+    try {
+      await pool.query(
+        `UPDATE deployments SET log = log || $1 WHERE id = $2 AND server_id = $3`,
+        [lines + '\n', req.params.id, req.server.id]
+      )
+      res.status(204).end()
+    } catch (err) {
+      res.status(500).json({ error: 'internal server error' })
+    }
+  })
+
+  // POST /api/agent/deployments/:id/status — agent updates final status
+  router.post('/api/agent/deployments/:id/status', agentAuth(pool), async (req, res) => {
+    const { status } = req.body || {}
+    const allowed = ['running', 'health_check', 'success', 'failed', 'rolled_back']
+    if (!allowed.includes(status)) {
+      return res.status(400).json({ error: `status must be one of: ${allowed.join(', ')}` })
+    }
+    try {
+      const finished = ['success', 'failed', 'rolled_back'].includes(status)
+      await pool.query(
+        `UPDATE deployments
+         SET status = $1, finished_at = $2
+         WHERE id = $3 AND server_id = $4`,
+        [status, finished ? new Date() : null, req.params.id, req.server.id]
       )
       res.status(204).end()
     } catch (err) {

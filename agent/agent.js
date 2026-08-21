@@ -1,8 +1,9 @@
 'use strict'
 
 /**
- * ServerPilot Agent — Phase 3
- * Sends heartbeats with CPU/RAM/container data and executes queued commands.
+ * ServerPilot Agent — Phase 4
+ * Sends heartbeats with CPU/RAM/container data, executes queued commands,
+ * and runs application deployments via docker compose.
  *
  * Usage:
  *   AGENT_TOKEN=<token> CONTROL_URL=http://your-server:8081 node agent.js
@@ -14,9 +15,11 @@
  */
 
 const os    = require('os')
+const fs    = require('fs')
+const path  = require('path')
 const http  = require('http')
 const https = require('https')
-const { exec } = require('child_process')
+const { exec, execSync } = require('child_process')
 
 const CONTROL_URL  = (process.env.CONTROL_URL || 'http://localhost:8081').replace(/\/$/, '')
 const AGENT_TOKEN  = process.env.AGENT_TOKEN
@@ -164,6 +167,108 @@ async function reportResult(cmdId, status, result) {
   }
 }
 
+// ── Deployment execution ──────────────────────────────────────────────────────
+
+const DEPLOY_DIR = process.env.DEPLOY_DIR || '/opt/serverpilot/apps'
+
+async function pollDeployments() {
+  try {
+    const { status, body } = await request('GET', '/api/agent/deployments', null, AGENT_TOKEN)
+    if (status !== 200) return
+    const { deployments } = JSON.parse(body)
+    for (const dep of deployments) {
+      executeDeployment(dep)  // fire-and-forget
+    }
+  } catch (err) {
+    console.error(`[${new Date().toISOString()}] deployment poll error: ${err.message}`)
+  }
+}
+
+async function appendLog(depId, lines) {
+  try {
+    await request('POST', `/api/agent/deployments/${depId}/log`, { lines }, AGENT_TOKEN)
+  } catch (_) {}
+}
+
+async function setDeployStatus(depId, status) {
+  try {
+    await request('POST', `/api/agent/deployments/${depId}/status`, { status }, AGENT_TOKEN)
+  } catch (_) {}
+}
+
+async function executeDeployment(dep) {
+  const tag  = `[deploy:${dep.id.slice(0, 8)}]`
+  const log  = (msg) => { console.log(`[${new Date().toISOString()}] ${tag} ${msg}`) }
+  const alog = (msg) => { log(msg); return appendLog(dep.id, msg) }
+
+  const appDir = path.join(DEPLOY_DIR, dep.app_name.replace(/[^a-z0-9_-]/gi, '_'))
+
+  try {
+    fs.mkdirSync(appDir, { recursive: true })
+    const composePath = path.join(appDir, 'docker-compose.yml')
+    fs.writeFileSync(composePath, dep.compose_yaml, 'utf8')
+
+    await alog(`Wrote compose file to ${composePath}`)
+    await setDeployStatus(dep.id, 'running')
+
+    // Pull images
+    await alog('Pulling images…')
+    await runCmd(`docker compose -f ${composePath} pull`, dep.id, alog)
+
+    // Start / update containers
+    await alog('Starting containers…')
+    await runCmd(`docker compose -f ${composePath} up -d --remove-orphans`, dep.id, alog)
+
+    // Health check
+    if (dep.health_check_url) {
+      await setDeployStatus(dep.id, 'health_check')
+      await alog(`Health checking ${dep.health_check_url} …`)
+      const ok = await waitHealthy(dep.health_check_url, 60_000)
+      if (!ok) {
+        await alog('Health check timed out — marking failed')
+        await setDeployStatus(dep.id, 'failed')
+        return
+      }
+      await alog('Health check passed')
+    }
+
+    await alog('Deployment succeeded')
+    await setDeployStatus(dep.id, 'success')
+  } catch (err) {
+    await alog(`Error: ${err.message}`)
+    await setDeployStatus(dep.id, 'failed')
+  }
+}
+
+function runCmd(cmd, depId, alog) {
+  return new Promise((resolve, reject) => {
+    const child = exec(cmd)
+    const collect = (data) => { alog(data.toString().trim()) }
+    child.stdout?.on('data', collect)
+    child.stderr?.on('data', collect)
+    child.on('close', code => {
+      if (code === 0) resolve()
+      else reject(new Error(`command exited with code ${code}`))
+    })
+  })
+}
+
+function waitHealthy(url, timeoutMs) {
+  return new Promise((resolve) => {
+    const deadline = Date.now() + timeoutMs
+    function attempt() {
+      if (Date.now() > deadline) return resolve(false)
+      const lib = url.startsWith('https') ? https : http
+      lib.get(url, (res) => {
+        if (res.statusCode >= 200 && res.statusCode < 400) resolve(true)
+        else setTimeout(attempt, 5000)
+        res.resume()
+      }).on('error', () => setTimeout(attempt, 5000))
+    }
+    attempt()
+  })
+}
+
 // ── Main loop ─────────────────────────────────────────────────────────────────
 
 console.log(`[agent] starting — reporting to ${CONTROL_URL} every ${INTERVAL_MS / 1000}s`)
@@ -171,6 +276,7 @@ console.log(`[agent] starting — reporting to ${CONTROL_URL} every ${INTERVAL_M
 async function tick() {
   await sendHeartbeat()
   await pollCommands()
+  await pollDeployments()
 }
 
 tick()

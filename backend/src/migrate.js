@@ -31,6 +31,42 @@ const MIGRATIONS = [
     `,
   },
   {
+    name: '006_create_applications',
+    sql: `
+      CREATE TABLE IF NOT EXISTS applications (
+        id               TEXT        PRIMARY KEY DEFAULT gen_random_uuid()::text,
+        name             TEXT        NOT NULL UNIQUE,
+        compose_yaml     TEXT        NOT NULL,
+        health_check_url TEXT        DEFAULT '',
+        created_at       TIMESTAMPTZ DEFAULT NOW(),
+        updated_at       TIMESTAMPTZ DEFAULT NOW()
+      );
+    `,
+  },
+  {
+    name: '007_create_deployments',
+    sql: `
+      CREATE TABLE IF NOT EXISTS deployments (
+        id           TEXT        PRIMARY KEY DEFAULT gen_random_uuid()::text,
+        app_id       TEXT        NOT NULL REFERENCES applications(id) ON DELETE CASCADE,
+        app_name     TEXT        NOT NULL,
+        server_id    TEXT        NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+        server_name  TEXT        NOT NULL,
+        status       TEXT        NOT NULL DEFAULT 'pending'
+                                 CHECK (status IN ('pending','running','health_check','success','failed','rolling_back','rolled_back')),
+        compose_yaml TEXT        NOT NULL,
+        log          TEXT        DEFAULT '',
+        deployed_by  TEXT,
+        started_at   TIMESTAMPTZ DEFAULT NOW(),
+        finished_at  TIMESTAMPTZ
+      );
+      CREATE INDEX IF NOT EXISTS idx_deployments_app_id    ON deployments(app_id);
+      CREATE INDEX IF NOT EXISTS idx_deployments_server_id ON deployments(server_id);
+      CREATE INDEX IF NOT EXISTS idx_deployments_pending
+        ON deployments(server_id, status) WHERE status = 'pending';
+    `,
+  },
+  {
     name: '004_create_containers',
     sql: `
       CREATE TABLE IF NOT EXISTS containers (

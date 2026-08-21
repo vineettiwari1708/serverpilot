@@ -15,6 +15,7 @@ const authRouter    = require('./routes/auth')
 const agentRouter      = require('./routes/agent')
 const serversRouter    = require('./routes/servers')
 const containersRouter = require('./routes/containers')
+const appsRouter       = require('./routes/apps')
 
 const startTime = Date.now()
 
@@ -63,6 +64,7 @@ async function main() {
   app.use(agentRouter(pool))
   app.use(serversRouter(pool))
   app.use(containersRouter(pool))
+  app.use(appsRouter(pool))
 
   // 404 fallback
   app.use((req, res) => {
