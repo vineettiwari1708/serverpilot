@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import { api } from '../services/api'
+import { useAuth } from '../context/AuthContext'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend,
@@ -73,14 +74,21 @@ type TabKey = 'containers' | 'commands' | 'metrics'
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function ServerDetail() {
-  const { id } = useParams<{ id: string }>()
-  const [data,    setData]    = useState<DetailResponse | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error,   setError]   = useState('')
-  const [pending, setPending] = useState<Record<string, boolean>>({})
-  const [tab,     setTab]     = useState<TabKey>('containers')
-  const [metrics, setMetrics] = useState<MetricPoint[]>([])
-  const [mLoading, setMLoading] = useState(false)
+  const { id }    = useParams<{ id: string }>()
+  const navigate  = useNavigate()
+  const { user }  = useAuth()
+  const isAdmin   = user?.role === 'admin'
+
+  const [data,      setData]      = useState<DetailResponse | null>(null)
+  const [loading,   setLoading]   = useState(true)
+  const [error,     setError]     = useState('')
+  const [pending,   setPending]   = useState<Record<string, boolean>>({})
+  const [tab,       setTab]       = useState<TabKey>('containers')
+  const [metrics,   setMetrics]   = useState<MetricPoint[]>([])
+  const [mLoading,  setMLoading]  = useState(false)
+  const [token,     setToken]     = useState<string | null>(null)
+  const [showToken, setShowToken] = useState(false)
+  const [deleting,  setDeleting]  = useState(false)
 
   const fetchData = useCallback(async () => {
     try {
@@ -118,6 +126,21 @@ export default function ServerDetail() {
     const t = setInterval(fetchData, 15_000)
     return () => clearInterval(t)
   }, [fetchData])
+
+  const fetchToken = async () => {
+    const r = await api.get(`/api/servers/${id}/token`)
+    if (r.ok) { const d = await r.json(); setToken(d.agent_token) }
+  }
+
+  const deleteServer = async () => {
+    if (!data) return
+    if (!confirm(`Delete "${data.server.name}"?\n\nThis removes all heartbeat data, containers, deployments, backups and alerts. This cannot be undone.`)) return
+    setDeleting(true)
+    try {
+      const r = await api.delete(`/api/servers/${id}`)
+      if (r.ok) navigate('/servers', { replace: true })
+    } finally { setDeleting(false) }
+  }
 
   useEffect(() => {
     if (tab !== 'metrics') return
@@ -324,6 +347,57 @@ export default function ServerDetail() {
 
         </div>
       </div>
+
+      {/* Danger zone — admin only */}
+      {isAdmin && (
+        <div className="sp-card border border-red-500/20">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-red-500/70 mb-4">Danger Zone</h2>
+          <div className="space-y-4">
+
+            {/* Agent token */}
+            <div className="flex items-start gap-4 flex-wrap">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-slate-300 font-medium">Agent Token</p>
+                <p className="text-[11px] text-slate-600 mt-0.5">
+                  Use this token to reconnect an agent that lost its configuration.
+                </p>
+                {showToken && token && (
+                  <p className="mt-2 font-mono text-[11px] text-slate-400 bg-black/30 border border-sp-border rounded-lg px-3 py-2 break-all">
+                    {token}
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => {
+                  if (!showToken) fetchToken()
+                  setShowToken(v => !v)
+                }}
+                className="shrink-0 px-3 py-1.5 rounded-lg border border-slate-600 text-slate-400 hover:text-white hover:border-slate-500 text-xs transition-colors"
+              >
+                {showToken ? 'Hide token' : 'Reveal token'}
+              </button>
+            </div>
+
+            {/* Delete */}
+            <div className="flex items-start gap-4 flex-wrap pt-3 border-t border-sp-border">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-slate-300 font-medium">Delete Server</p>
+                <p className="text-[11px] text-slate-600 mt-0.5">
+                  Permanently removes this server and all its data — heartbeats, containers, deployments, backups, and alerts.
+                </p>
+              </div>
+              <button
+                onClick={deleteServer}
+                disabled={deleting}
+                className="shrink-0 px-4 py-1.5 rounded-lg border border-red-500/40 text-red-400 hover:bg-red-500/10 text-xs font-semibold transition-colors disabled:opacity-40"
+              >
+                {deleting ? 'Deleting…' : 'Delete Server'}
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
 
     </div>
   )

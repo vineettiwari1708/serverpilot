@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useState, useCallback } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../services/api'
+import { useAuth } from '../context/AuthContext'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -18,31 +19,27 @@ interface Server {
   docker_count:  number | null
 }
 
-interface Summary {
-  total:      number
-  online:     number
-  offline:    number
-  containers: number
-}
-
-interface ServersResponse {
-  servers: Server[]
-  summary: Summary
-}
+interface Summary { total: number; online: number; offline: number; containers: number }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function Servers() {
-  const [servers,  setServers]  = useState<Server[]>([])
-  const [summary,  setSummary]  = useState<Summary>({ total: 0, online: 0, offline: 0, containers: 0 })
-  const [loading,  setLoading]  = useState(true)
-  const [error,    setError]    = useState('')
+  const { user } = useAuth()
+  const navigate = useNavigate()
+  const [servers,      setServers]      = useState<Server[]>([])
+  const [summary,      setSummary]      = useState<Summary>({ total: 0, online: 0, offline: 0, containers: 0 })
+  const [loading,      setLoading]      = useState(true)
+  const [error,        setError]        = useState('')
+  const [showOnboard,  setShowOnboard]  = useState(false)
+  const [deleting,     setDeleting]     = useState<string | null>(null)
 
-  const fetchServers = async () => {
+  const isAdmin = user?.role === 'admin'
+
+  const fetchServers = useCallback(async () => {
     try {
       const res = await api.get('/api/servers')
       if (!res.ok) { setError('Failed to load servers'); return }
-      const data = await res.json() as ServersResponse
+      const data = await res.json()
       setServers(data.servers)
       setSummary(data.summary)
       setError('')
@@ -51,13 +48,26 @@ export default function Servers() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
     fetchServers()
     const t = setInterval(fetchServers, 30_000)
     return () => clearInterval(t)
-  }, [])
+  }, [fetchServers])
+
+  const deleteServer = async (e: React.MouseEvent, server: Server) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!confirm(`Delete "${server.name}"?\n\nThis removes all heartbeat data, containers, deployments, backups and alerts for this server. This cannot be undone.`)) return
+    setDeleting(server.id)
+    try {
+      const r = await api.delete(`/api/servers/${server.id}`)
+      if (r.ok) await fetchServers()
+    } finally {
+      setDeleting(null)
+    }
+  }
 
   return (
     <div className="p-6 space-y-6 max-w-6xl">
@@ -68,12 +78,18 @@ export default function Servers() {
           <h1 className="text-2xl font-bold text-white">Servers</h1>
           <p className="text-slate-500 text-sm mt-0.5">Agent-connected servers — updates every 30s</p>
         </div>
-        <button
-          onClick={fetchServers}
-          className="px-3 py-1.5 rounded-lg bg-sp-hover border border-sp-border text-slate-400 hover:text-white text-xs transition-colors"
-        >
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={fetchServers}
+            className="px-3 py-1.5 rounded-lg bg-sp-hover border border-sp-border text-slate-400 hover:text-white text-xs transition-colors">
+            Refresh
+          </button>
+          {isAdmin && (
+            <button onClick={() => setShowOnboard(true)}
+              className="px-4 py-1.5 rounded-lg bg-sp-accent text-white text-xs font-semibold hover:bg-sp-accent/80 transition-colors">
+              + Add Server
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Summary cards */}
@@ -86,24 +102,27 @@ export default function Servers() {
 
       {/* Server list */}
       <div className="sp-card">
-        {loading && (
-          <div className="py-12 text-center text-slate-600 text-sm animate-pulse">Loading servers…</div>
-        )}
-
-        {!loading && error && (
-          <div className="py-12 text-center text-red-400 text-sm">{error}</div>
-        )}
-
-        {!loading && !error && servers.length === 0 && (
-          <EmptyState />
-        )}
-
+        {loading && <div className="py-12 text-center text-slate-600 text-sm animate-pulse">Loading servers…</div>}
+        {!loading && error && <div className="py-12 text-center text-red-400 text-sm">{error}</div>}
+        {!loading && !error && servers.length === 0 && <EmptyState onAdd={() => setShowOnboard(true)} isAdmin={isAdmin} />}
         {!loading && !error && servers.length > 0 && (
           <div className="divide-y divide-sp-border">
-            {servers.map(s => <ServerRow key={s.id} server={s} />)}
+            {servers.map(s => (
+              <ServerRow
+                key={s.id}
+                server={s}
+                isAdmin={isAdmin}
+                deleting={deleting === s.id}
+                onDelete={e => deleteServer(e, s)}
+                onView={() => navigate(`/servers/${s.id}`)}
+              />
+            ))}
           </div>
         )}
       </div>
+
+      {/* Onboarding modal */}
+      {showOnboard && <OnboardModal onClose={() => setShowOnboard(false)} />}
 
     </div>
   )
@@ -111,21 +130,26 @@ export default function Servers() {
 
 // ── Server row ────────────────────────────────────────────────────────────────
 
-function ServerRow({ server: s }: { server: Server }) {
+function ServerRow({ server: s, isAdmin, deleting, onDelete, onView }: {
+  server:   Server
+  isAdmin:  boolean
+  deleting: boolean
+  onDelete: (e: React.MouseEvent) => void
+  onView:   () => void
+}) {
   return (
-    <Link to={`/servers/${s.id}`} className="flex items-center gap-4 py-3.5 px-1 hover:bg-sp-hover/30 transition-colors rounded-lg group">
-
-      {/* Status dot */}
+    <div
+      onClick={onView}
+      className="flex items-center gap-4 py-3.5 px-1 hover:bg-sp-hover/30 transition-colors rounded-lg group cursor-pointer"
+    >
       <StatusDot status={s.status} />
 
-      {/* Name + hostname */}
       <div className="min-w-0 w-44">
         <p className="text-sm font-medium text-white truncate">{s.name}</p>
         <p className="text-[11px] text-slate-600 font-mono truncate">{s.hostname}</p>
         {s.ip && <p className="text-[10px] text-slate-700 font-mono">{s.ip}</p>}
       </div>
 
-      {/* Status badge */}
       <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0 ${
         s.status === 'online'  ? 'bg-green-500/10  text-green-400  border-green-500/20'  :
         s.status === 'pending' ? 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20' :
@@ -134,13 +158,11 @@ function ServerRow({ server: s }: { server: Server }) {
         {s.status.toUpperCase()}
       </span>
 
-      {/* Metrics */}
       <div className="flex items-center gap-4 flex-1 min-w-0">
         <MetricBar label="CPU" value={s.cpu_pct} color="bg-blue-500" />
         <MetricBar label="RAM" value={s.ram_pct} color="bg-purple-500" />
       </div>
 
-      {/* Docker count */}
       {s.docker_count != null && (
         <div className="text-center shrink-0 w-14">
           <p className="text-lg font-bold text-slate-300">{s.docker_count}</p>
@@ -148,7 +170,6 @@ function ServerRow({ server: s }: { server: Server }) {
         </div>
       )}
 
-      {/* Last seen + arrow */}
       <div className="text-right shrink-0 w-28 flex flex-col items-end gap-1">
         <p className="text-[10px] text-slate-600">
           {s.last_seen ? timeAgo(s.last_seen) : 'never'}
@@ -158,7 +179,147 @@ function ServerRow({ server: s }: { server: Server }) {
         </span>
       </div>
 
-    </Link>
+      {isAdmin && (
+        <button
+          onClick={onDelete}
+          disabled={deleting}
+          title="Delete server"
+          className="shrink-0 opacity-0 group-hover:opacity-100 text-[10px] text-red-500/50 hover:text-red-400 transition-all disabled:opacity-30 font-mono px-1"
+        >
+          {deleting ? '…' : 'del'}
+        </button>
+      )}
+    </div>
+  )
+}
+
+// ── Onboarding modal ──────────────────────────────────────────────────────────
+
+function OnboardModal({ onClose }: { onClose: () => void }) {
+  const controlUrl = `http://${window.location.hostname}:8081`
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-sp-surface border border-sp-border rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+        onClick={e => e.stopPropagation()}>
+
+        <div className="flex items-center justify-between px-6 py-4 border-b border-sp-border">
+          <h2 className="text-base font-bold text-white">Add a Server</h2>
+          <button onClick={onClose} className="text-slate-600 hover:text-white transition-colors text-lg">×</button>
+        </div>
+
+        <div className="px-6 py-5 space-y-5 text-sm">
+
+          <p className="text-slate-400">
+            Install the agent on any Linux server with Node.js and Docker. The agent registers itself on first run.
+          </p>
+
+          <Step n={1} title="Prerequisites">
+            <p className="text-slate-500 text-xs">Node.js 18+ and Docker must be installed on the target server.</p>
+          </Step>
+
+          <Step n={2} title="Copy the agent">
+            <CodeBlock>{`# From this machine, copy agent.js to the target server:
+scp agent/agent.js user@TARGET_SERVER:/opt/serverpilot/agent.js`}</CodeBlock>
+          </Step>
+
+          <Step n={3} title="Configure environment variables">
+            <CodeBlock>{`export CONTROL_URL="${controlUrl}"
+export AGENT_SECRET="changeme"    # Must match AGENT_SECRET in your .env
+export SERVER_NAME="my-server"    # Display name in the dashboard`}</CodeBlock>
+            <p className="text-[11px] text-slate-600 mt-2">
+              AGENT_SECRET must match the value in your backend <code className="text-slate-500">.env</code> file.
+            </p>
+          </Step>
+
+          <Step n={4} title="Run the agent">
+            <CodeBlock>{`node /opt/serverpilot/agent.js`}</CodeBlock>
+            <p className="text-[11px] text-slate-600 mt-2">
+              The agent will register itself and appear in the dashboard within 30 seconds.
+            </p>
+          </Step>
+
+          <Step n={5} title="Run as a service (optional)">
+            <CodeBlock>{`# Create a systemd service
+cat > /etc/systemd/system/serverpilot-agent.service << 'EOF'
+[Unit]
+Description=ServerPilot Agent
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+Environment=CONTROL_URL=${controlUrl}
+Environment=AGENT_SECRET=changeme
+Environment=SERVER_NAME=my-server
+ExecStart=/usr/bin/node /opt/serverpilot/agent.js
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now serverpilot-agent`}</CodeBlock>
+          </Step>
+
+          <div className="bg-sp-hover border border-sp-border rounded-xl p-4 text-[11px] text-slate-500 space-y-1">
+            <p className="font-semibold text-slate-400">Supported targets</p>
+            <div className="grid grid-cols-2 gap-x-4 mt-2">
+              {['Ubuntu 20.04+', 'Debian 11+', 'AWS EC2', 'DigitalOcean Droplet', 'Hetzner VPS', 'Raspberry Pi 4 (ARM64)'].map(t => (
+                <span key={t} className="text-slate-600">· {t}</span>
+              ))}
+            </div>
+          </div>
+
+        </div>
+
+        <div className="px-6 py-4 border-t border-sp-border flex justify-end">
+          <button onClick={onClose}
+            className="px-5 py-2 rounded-lg bg-sp-accent text-white text-xs font-semibold hover:bg-sp-accent/80 transition-colors">
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <span className="h-5 w-5 rounded-full bg-sp-accent/20 border border-sp-accent/30 text-sp-accent text-[10px] font-bold flex items-center justify-center shrink-0">
+          {n}
+        </span>
+        <p className="text-xs font-semibold text-slate-300">{title}</p>
+      </div>
+      <div className="ml-7">{children}</div>
+    </div>
+  )
+}
+
+function CodeBlock({ children }: { children: string }) {
+  const [copied, setCopied] = useState(false)
+  const copy = () => {
+    navigator.clipboard.writeText(children).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+  return (
+    <div className="relative group">
+      <pre className="bg-black/40 border border-sp-border rounded-lg px-4 py-3 text-[11px] text-slate-400 font-mono overflow-x-auto leading-relaxed">
+        {children}
+      </pre>
+      <button
+        onClick={copy}
+        className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-[9px] font-bold px-2 py-0.5 rounded border border-sp-border bg-sp-surface text-slate-500 hover:text-white transition-all"
+      >
+        {copied ? 'COPIED' : 'COPY'}
+      </button>
+    </div>
   )
 }
 
@@ -184,10 +345,8 @@ function MetricBar({ label, value, color }: { label: string; value: number | nul
         <span className="text-[10px] text-slate-500 font-mono">{value != null ? `${pct}%` : '–'}</span>
       </div>
       <div className="h-1 bg-sp-hover rounded-full overflow-hidden">
-        <div
-          className={`h-full rounded-full transition-all ${color} ${pct > 80 ? 'opacity-100' : 'opacity-70'}`}
-          style={{ width: `${pct}%` }}
-        />
+        <div className={`h-full rounded-full transition-all ${color} ${pct > 80 ? 'opacity-100' : 'opacity-70'}`}
+          style={{ width: `${pct}%` }} />
       </div>
     </div>
   )
@@ -204,25 +363,19 @@ function SummaryCard({ label, value, color, bg, ring }: {
   )
 }
 
-function EmptyState() {
+function EmptyState({ onAdd, isAdmin }: { onAdd: () => void; isAdmin: boolean }) {
   return (
-    <div className="py-16 text-center space-y-3">
+    <div className="py-16 text-center space-y-4">
       <p className="text-slate-500 text-sm">No servers registered yet.</p>
       <p className="text-slate-700 text-xs max-w-sm mx-auto leading-relaxed">
-        Run the agent on any server to register it. See <code className="text-slate-500">agent/agent.js</code> — register first, then start the agent with the returned token.
+        Deploy the agent to any server to register it automatically.
       </p>
-      <div className="inline-block mt-2 px-4 py-2.5 bg-sp-hover rounded-xl border border-sp-border text-left">
-        <pre className="text-[11px] text-slate-400 font-mono leading-relaxed">{`# 1. Register
-curl -X POST http://localhost:8081/api/agent/register \\
-  -H "Content-Type: application/json" \\
-  -d '{"name":"my-server","hostname":"server1",
-       "agent_secret":"changeme"}'
-
-# 2. Start the agent
-AGENT_TOKEN=<token from above> \\
-CONTROL_URL=http://localhost:8081 \\
-node agent/agent.js`}</pre>
-      </div>
+      {isAdmin && (
+        <button onClick={onAdd}
+          className="mt-2 px-5 py-2 rounded-lg bg-sp-accent text-white text-xs font-semibold hover:bg-sp-accent/80 transition-colors">
+          + Add Server
+        </button>
+      )}
     </div>
   )
 }
