@@ -3,6 +3,7 @@ import Layout from './components/Layout'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Docs from './pages/Docs'
+import Servers from './pages/Servers'
 import Placeholder from './pages/Placeholder'
 
 export default function App() {
@@ -16,7 +17,7 @@ export default function App() {
         <Route index                element={<Dashboard />} />
         <Route path="docs"          element={<Navigate to="/docs/1a" replace />} />
         <Route path="docs/:phaseId" element={<Docs />} />
-        <Route path="servers"       element={<Placeholder title="Servers"      desc="Agent-connected servers. Coming in Phase 2." />} />
+        <Route path="servers"       element={<Servers />} />
         <Route path="applications"  element={<Placeholder title="Applications" desc="Docker application registry. Coming in Phase 4." />} />
         <Route path="deployments"   element={<Placeholder title="Deployments"  desc="Deployment history and status. Coming in Phase 4." />} />
         <Route path="backups"       element={<Placeholder title="Backups"      desc="Backup jobs and storage. Coming in Phase 5." />} />

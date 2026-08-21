@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { api } from '../services/api'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -22,21 +23,23 @@ interface StatusData {
   timestamp: string
 }
 
-// ── Static stat cards (will be real data in Phase 2) ─────────────────────────
+// ── Stat card config ──────────────────────────────────────────────────────────
 
-const statCards = [
-  { label: 'Total Servers',      value: '0', note: 'Agents connect in Phase 2', color: 'text-blue-400',   ring: 'ring-blue-500/20',   bg: 'bg-blue-500/10'   },
-  { label: 'Online Servers',     value: '0', note: 'Heartbeat detection',       color: 'text-green-400',  ring: 'ring-green-500/20',  bg: 'bg-green-500/10'  },
-  { label: 'Offline Servers',    value: '0', note: 'Timeout alerting',          color: 'text-red-400',    ring: 'ring-red-500/20',    bg: 'bg-red-500/10'    },
-  { label: 'Running Containers', value: '0', note: 'Docker API in Phase 3',     color: 'text-purple-400', ring: 'ring-purple-500/20', bg: 'bg-purple-500/10' },
-]
+const statCardConfig = [
+  { key: 'total',      label: 'Total Servers',      color: 'text-blue-400',   ring: 'ring-blue-500/20',   bg: 'bg-blue-500/10'   },
+  { key: 'online',     label: 'Online Servers',     color: 'text-green-400',  ring: 'ring-green-500/20',  bg: 'bg-green-500/10'  },
+  { key: 'offline',    label: 'Offline Servers',    color: 'text-red-400',    ring: 'ring-red-500/20',    bg: 'bg-red-500/10'    },
+  { key: 'containers', label: 'Running Containers', color: 'text-purple-400', ring: 'ring-purple-500/20', bg: 'bg-purple-500/10' },
+] as const
+
+interface ServerSummary { total: number; online: number; offline: number; containers: number }
 
 // ── Build phases tracker ──────────────────────────────────────────────────────
 
 const phases = [
   { id: '1a', label: 'Skeleton + Infrastructure',      done: true  },
   { id: '1b', label: 'Auth + Database Schema',         done: true  },
-  { id: '2',  label: 'Agent Registration + Heartbeat', done: false },
+  { id: '2',  label: 'Agent Registration + Heartbeat', done: true  },
   { id: '3',  label: 'Docker Container Management',    done: false },
   { id: '4',  label: 'Application Deployment',         done: false },
   { id: '5',  label: 'Backup + Restore',               done: false },
@@ -47,19 +50,28 @@ const phases = [
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
-  const [data,  setData]  = useState<StatusData | null>(null)
-  const [state, setState] = useState<'loading' | 'ok' | 'degraded' | 'error'>('loading')
+  const [data,    setData]    = useState<StatusData | null>(null)
+  const [state,   setState]   = useState<'loading' | 'ok' | 'degraded' | 'error'>('loading')
+  const [summary, setSummary] = useState<ServerSummary>({ total: 0, online: 0, offline: 0, containers: 0 })
 
   useEffect(() => {
-    const poll = () => {
+    const pollStatus = () => {
       fetch('/api/status')
         .then(r => { if (!r.ok) throw new Error(); return r.json() })
         .then((d: StatusData) => { setData(d); setState(d.status === 'ok' ? 'ok' : 'degraded') })
         .catch(() => { setState('error'); setData(null) })
     }
-    poll()
-    const t = setInterval(poll, 30_000)
-    return () => clearInterval(t)
+    const pollServers = () => {
+      api.get('/api/servers')
+        .then(r => r.ok ? r.json() : null)
+        .then((d: { summary: ServerSummary } | null) => { if (d) setSummary(d.summary) })
+        .catch(() => {})
+    }
+    pollStatus()
+    pollServers()
+    const t1 = setInterval(pollStatus,  30_000)
+    const t2 = setInterval(pollServers, 30_000)
+    return () => { clearInterval(t1); clearInterval(t2) }
   }, [])
 
   return (
@@ -81,11 +93,10 @@ export default function Dashboard() {
 
       {/* Stat cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {statCards.map(c => (
-          <div key={c.label} className={`sp-card ring-1 ${c.ring} ${c.bg}`}>
+        {statCardConfig.map(c => (
+          <div key={c.key} className={`sp-card ring-1 ${c.ring} ${c.bg}`}>
             <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{c.label}</p>
-            <p className={`text-4xl font-bold mt-2 ${c.color}`}>{c.value}</p>
-            <p className="text-[11px] text-slate-600 mt-2">{c.note}</p>
+            <p className={`text-4xl font-bold mt-2 ${c.color}`}>{summary[c.key]}</p>
           </div>
         ))}
       </div>

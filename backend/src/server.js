@@ -9,9 +9,11 @@ const logger   = require('./logger')
 const { pool, connect } = require('./db')
 const migrate  = require('./migrate')
 const seedAdmin = require('./seed')
-const health   = require('./routes/health')
-const statusRouter = require('./routes/status')
-const authRouter   = require('./routes/auth')
+const health       = require('./routes/health')
+const statusRouter  = require('./routes/status')
+const authRouter    = require('./routes/auth')
+const agentRouter   = require('./routes/agent')
+const serversRouter = require('./routes/servers')
 
 const startTime = Date.now()
 
@@ -57,6 +59,8 @@ async function main() {
   app.use(health)
   app.use(statusRouter(startTime))
   app.use(authRouter(pool))
+  app.use(agentRouter(pool))
+  app.use(serversRouter(pool))
 
   // 404 fallback
   app.use((req, res) => {
@@ -65,6 +69,13 @@ async function main() {
 
   app.listen(config.port, '0.0.0.0', () => {
     logger.info('listening', { addr: `http://0.0.0.0:${config.port}` })
+  }).on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      logger.error(`port ${config.port} already in use — stop the Docker backend first, or set PORT=8082`)
+    } else {
+      logger.error('server error', { error: err.message })
+    }
+    process.exit(1)
   })
 }
 

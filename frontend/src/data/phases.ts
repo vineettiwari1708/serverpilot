@@ -132,7 +132,7 @@ http://localhost:5173` },
   {
     id: '2',
     title: 'Agent Registration + Heartbeat',
-    status: 'next',
+    status: 'done',
     summary: 'Lightweight Go agent binary deployed to each managed server. Registers itself, sends heartbeats with CPU/RAM/disk/Docker metrics every 30 seconds. Server status shown live in the dashboard.',
     sections: [
       { type: 'heading', content: 'Agent Architecture' },
@@ -173,7 +173,7 @@ http://localhost:5173` },
   {
     id: '3',
     title: 'Docker Container Management',
-    status: 'upcoming',
+    status: 'next',
     summary: 'View and control Docker containers on each managed server from the dashboard. Agent communicates with local Docker socket. All actions are explicit, audited, and never expose raw shell access.',
     sections: [
       { type: 'heading', content: 'Allowed Actions' },

@@ -16,6 +16,36 @@ const MIGRATIONS = [
       CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
     `,
   },
+  {
+    name: '002_create_servers',
+    sql: `
+      CREATE TABLE IF NOT EXISTS servers (
+        id            TEXT        PRIMARY KEY DEFAULT gen_random_uuid()::text,
+        name          TEXT        NOT NULL,
+        hostname      TEXT        UNIQUE NOT NULL,
+        ip            TEXT,
+        agent_token   TEXT        UNIQUE NOT NULL DEFAULT gen_random_uuid()::text,
+        registered_at TIMESTAMPTZ DEFAULT NOW(),
+        last_seen     TIMESTAMPTZ
+      );
+    `,
+  },
+  {
+    name: '003_create_heartbeats',
+    sql: `
+      CREATE TABLE IF NOT EXISTS heartbeats (
+        id            BIGSERIAL   PRIMARY KEY,
+        server_id     TEXT        NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+        cpu_pct       FLOAT,
+        ram_pct       FLOAT,
+        disk_pct      FLOAT,
+        docker_count  INT         DEFAULT 0,
+        recorded_at   TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_heartbeats_server_id ON heartbeats(server_id);
+      CREATE INDEX IF NOT EXISTS idx_heartbeats_recorded_at ON heartbeats(recorded_at DESC);
+    `,
+  },
 ]
 
 module.exports = async function migrate(pool, logger) {
