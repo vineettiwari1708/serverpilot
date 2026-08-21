@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { api } from '../services/api'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -112,7 +113,7 @@ export default function Servers() {
 
 function ServerRow({ server: s }: { server: Server }) {
   return (
-    <div className="flex items-center gap-4 py-3.5 px-1 hover:bg-sp-hover/30 transition-colors rounded-lg">
+    <Link to={`/servers/${s.id}`} className="flex items-center gap-4 py-3.5 px-1 hover:bg-sp-hover/30 transition-colors rounded-lg group">
 
       {/* Status dot */}
       <StatusDot status={s.status} />
@@ -147,14 +148,17 @@ function ServerRow({ server: s }: { server: Server }) {
         </div>
       )}
 
-      {/* Last seen */}
-      <div className="text-right shrink-0 w-24">
+      {/* Last seen + arrow */}
+      <div className="text-right shrink-0 w-28 flex flex-col items-end gap-1">
         <p className="text-[10px] text-slate-600">
           {s.last_seen ? timeAgo(s.last_seen) : 'never'}
         </p>
+        <span className="text-[10px] text-slate-700 opacity-0 group-hover:opacity-100 transition-opacity">
+          View →
+        </span>
       </div>
 
-    </div>
+    </Link>
   )
 }
 

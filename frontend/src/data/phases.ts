@@ -173,7 +173,7 @@ http://localhost:5173` },
   {
     id: '3',
     title: 'Docker Container Management',
-    status: 'next',
+    status: 'done',
     summary: 'View and control Docker containers on each managed server from the dashboard. Agent communicates with local Docker socket. All actions are explicit, audited, and never expose raw shell access.',
     sections: [
       { type: 'heading', content: 'Allowed Actions' },

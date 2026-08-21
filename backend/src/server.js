@@ -12,8 +12,9 @@ const seedAdmin = require('./seed')
 const health       = require('./routes/health')
 const statusRouter  = require('./routes/status')
 const authRouter    = require('./routes/auth')
-const agentRouter   = require('./routes/agent')
-const serversRouter = require('./routes/servers')
+const agentRouter      = require('./routes/agent')
+const serversRouter    = require('./routes/servers')
+const containersRouter = require('./routes/containers')
 
 const startTime = Date.now()
 
@@ -61,6 +62,7 @@ async function main() {
   app.use(authRouter(pool))
   app.use(agentRouter(pool))
   app.use(serversRouter(pool))
+  app.use(containersRouter(pool))
 
   // 404 fallback
   app.use((req, res) => {

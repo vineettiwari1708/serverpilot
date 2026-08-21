@@ -31,6 +31,41 @@ const MIGRATIONS = [
     `,
   },
   {
+    name: '004_create_containers',
+    sql: `
+      CREATE TABLE IF NOT EXISTS containers (
+        id         TEXT        PRIMARY KEY DEFAULT gen_random_uuid()::text,
+        server_id  TEXT        NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+        name       TEXT        NOT NULL,
+        image      TEXT        NOT NULL,
+        status     TEXT        NOT NULL,
+        ports      TEXT        DEFAULT '',
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE (server_id, name)
+      );
+    `,
+  },
+  {
+    name: '005_create_container_commands',
+    sql: `
+      CREATE TABLE IF NOT EXISTS container_commands (
+        id           TEXT        PRIMARY KEY DEFAULT gen_random_uuid()::text,
+        server_id    TEXT        NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+        container    TEXT        NOT NULL,
+        action       TEXT        NOT NULL CHECK (action IN ('start','stop','restart')),
+        status       TEXT        NOT NULL DEFAULT 'pending'
+                                 CHECK (status IN ('pending','running','done','error')),
+        result       TEXT        DEFAULT '',
+        requested_by TEXT,
+        created_at   TIMESTAMPTZ DEFAULT NOW(),
+        updated_at   TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_cmds_server_pending
+        ON container_commands(server_id, status)
+        WHERE status IN ('pending','running');
+    `,
+  },
+  {
     name: '003_create_heartbeats',
     sql: `
       CREATE TABLE IF NOT EXISTS heartbeats (
