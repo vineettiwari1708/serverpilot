@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../services/api'
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, Legend,
+} from 'recharts'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -32,6 +36,7 @@ const statCardConfig = [
 ] as const
 
 interface ServerSummary { total: number; online: number; offline: number; containers: number }
+interface ServerHealth { name: string; cpu: number; ram: number }
 
 // ── Build phases tracker ──────────────────────────────────────────────────────
 
@@ -43,7 +48,7 @@ const phases = [
   { id: '4',  label: 'Application Deployment',         done: true  },
   { id: '5',  label: 'Backup + Restore',               done: true  },
   { id: '6',  label: 'Alerts + Monitoring',            done: true  },
-  { id: '7',  label: 'Polish + Charts',                done: false },
+  { id: '7',  label: 'Polish + Charts',                done: true  },
 ]
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
@@ -52,6 +57,7 @@ export default function Dashboard() {
   const [data,    setData]    = useState<StatusData | null>(null)
   const [state,   setState]   = useState<'loading' | 'ok' | 'degraded' | 'error'>('loading')
   const [summary, setSummary] = useState<ServerSummary>({ total: 0, online: 0, offline: 0, containers: 0 })
+  const [health,  setHealth]  = useState<ServerHealth[]>([])
 
   useEffect(() => {
     const pollStatus = () => {
@@ -66,11 +72,25 @@ export default function Dashboard() {
         .then((d: { summary: ServerSummary } | null) => { if (d) setSummary(d.summary) })
         .catch(() => {})
     }
+    const pollHealth = () => {
+      api.get('/api/monitoring/summary')
+        .then(r => r.ok ? r.json() : null)
+        .then((d: { servers: { name: string; cpu_pct: number | null; ram_pct: number | null }[] } | null) => {
+          if (d) setHealth(d.servers.map(s => ({
+            name: s.name,
+            cpu:  Math.round(s.cpu_pct ?? 0),
+            ram:  Math.round(s.ram_pct ?? 0),
+          })))
+        })
+        .catch(() => {})
+    }
     pollStatus()
     pollServers()
+    pollHealth()
     const t1 = setInterval(pollStatus,  30_000)
     const t2 = setInterval(pollServers, 30_000)
-    return () => { clearInterval(t1); clearInterval(t2) }
+    const t3 = setInterval(pollHealth,  30_000)
+    return () => { clearInterval(t1); clearInterval(t2); clearInterval(t3) }
   }, [])
 
   return (
@@ -168,6 +188,32 @@ export default function Dashboard() {
         </div>
 
       </div>
+
+      {/* Server Health chart */}
+      {health.length > 0 && (
+        <div className="sp-card">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500">Server Health</h2>
+            <Link to="/monitoring" className="text-[10px] text-slate-600 hover:text-slate-400 transition-colors">View all →</Link>
+          </div>
+          <ResponsiveContainer width="100%" height={180}>
+            <BarChart data={health} margin={{ top: 0, right: 8, left: -20, bottom: 0 }}
+              barCategoryGap="30%" barGap={3}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+              <XAxis dataKey="name" tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis domain={[0, 100]} tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} unit="%" />
+              <Tooltip
+                contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 8, fontSize: 12 }}
+                labelStyle={{ color: '#94a3b8' }}
+                cursor={{ fill: 'rgba(255,255,255,0.03)' }}
+              />
+              <Legend wrapperStyle={{ fontSize: 11, color: '#64748b' }} />
+              <Bar dataKey="cpu" name="CPU" fill="#3b82f6" radius={[3, 3, 0, 0]} />
+              <Bar dataKey="ram" name="RAM" fill="#8b5cf6" radius={[3, 3, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
 
       {/* Quick links */}
       <div className="sp-card">

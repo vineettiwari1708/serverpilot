@@ -1,5 +1,7 @@
 import { NavLink, useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
+import { api } from '../services/api'
 
 // ── SVG icon components (defined before nav array) ───────────────────────────
 
@@ -51,6 +53,18 @@ const linkClass = ({ isActive }: { isActive: boolean }) =>
 export default function Sidebar() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
+  const [alertCount, setAlertCount] = useState(0)
+
+  useEffect(() => {
+    const fetchCount = () =>
+      api.get('/api/alerts/counts')
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d) setAlertCount(d.open + d.acknowledged) })
+        .catch(() => {})
+    fetchCount()
+    const t = setInterval(fetchCount, 60_000)
+    return () => clearInterval(t)
+  }, [])
 
   const handleLogout = () => {
     logout()
@@ -79,7 +93,12 @@ export default function Sidebar() {
         {mainNav.map(({ to, label, end, Icon }) => (
           <NavLink key={to} to={to} end={end} className={linkClass}>
             <Icon />
-            {label}
+            <span className="flex-1">{label}</span>
+            {label === 'Alerts' && alertCount > 0 && (
+              <span className="ml-auto text-[10px] font-bold bg-red-500 text-white rounded-full px-1.5 py-0.5 min-w-[18px] text-center">
+                {alertCount > 99 ? '99+' : alertCount}
+              </span>
+            )}
           </NavLink>
         ))}
       </nav>

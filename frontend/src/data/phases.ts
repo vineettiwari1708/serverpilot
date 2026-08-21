@@ -297,7 +297,7 @@ http://localhost:5173` },
   {
     id: '7',
     title: 'Polish + Charts',
-    status: 'next',
+    status: 'done',
     summary: 'Real-time Recharts charts on the dashboard, responsive layout, server detail tabs, WebSocket log streaming, and production-ready UI across all pages.',
     sections: [
       { type: 'heading', content: 'Dashboard Charts' },

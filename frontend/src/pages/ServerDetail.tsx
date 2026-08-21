@@ -1,6 +1,10 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { api } from '../services/api'
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, Legend,
+} from 'recharts'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -24,15 +28,15 @@ interface Command {
 }
 
 interface ServerInfo {
-  id:         string
-  name:       string
-  hostname:   string
-  ip:         string | null
-  status:     'online' | 'offline' | 'pending'
-  last_seen:  string | null
-  cpu_pct:    number | null
-  ram_pct:    number | null
-  disk_pct:   number | null
+  id:           string
+  name:         string
+  hostname:     string
+  ip:           string | null
+  status:       'online' | 'offline' | 'pending'
+  last_seen:    string | null
+  cpu_pct:      number | null
+  ram_pct:      number | null
+  disk_pct:     number | null
   docker_count: number | null
 }
 
@@ -42,11 +46,16 @@ interface DetailResponse {
   commands:   Command[]
 }
 
+interface MetricPoint {
+  time:     string
+  cpu_pct:  number | null
+  ram_pct:  number | null
+  disk_pct: number | null
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function isRunning(status: string) {
-  return /^up/i.test(status)
-}
+function isRunning(status: string) { return /^up/i.test(status) }
 
 function timeAgo(iso: string) {
   const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000)
@@ -55,14 +64,23 @@ function timeAgo(iso: string) {
   return `${Math.floor(diff / 3600)}h ago`
 }
 
+function fmtTime(iso: string) {
+  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
+type TabKey = 'containers' | 'commands' | 'metrics'
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function ServerDetail() {
-  const { id }  = useParams<{ id: string }>()
+  const { id } = useParams<{ id: string }>()
   const [data,    setData]    = useState<DetailResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState('')
-  const [pending, setPending] = useState<Record<string, boolean>>({}) // name→true while action in flight
+  const [pending, setPending] = useState<Record<string, boolean>>({})
+  const [tab,     setTab]     = useState<TabKey>('containers')
+  const [metrics, setMetrics] = useState<MetricPoint[]>([])
+  const [mLoading, setMLoading] = useState(false)
 
   const fetchData = useCallback(async () => {
     try {
@@ -78,11 +96,35 @@ export default function ServerDetail() {
     }
   }, [id])
 
+  const fetchMetrics = useCallback(async () => {
+    setMLoading(true)
+    try {
+      const res = await api.get(`/api/servers/${id}/metrics?limit=60`)
+      if (!res.ok) return
+      const d = await res.json() as { metrics: { cpu_pct: number|null; ram_pct: number|null; disk_pct: number|null; recorded_at: string }[] }
+      setMetrics(d.metrics.map(m => ({
+        time:     fmtTime(m.recorded_at),
+        cpu_pct:  m.cpu_pct,
+        ram_pct:  m.ram_pct,
+        disk_pct: m.disk_pct,
+      })))
+    } finally {
+      setMLoading(false)
+    }
+  }, [id])
+
   useEffect(() => {
     fetchData()
     const t = setInterval(fetchData, 15_000)
     return () => clearInterval(t)
   }, [fetchData])
+
+  useEffect(() => {
+    if (tab !== 'metrics') return
+    fetchMetrics()
+    const t = setInterval(fetchMetrics, 30_000)
+    return () => clearInterval(t)
+  }, [tab, fetchMetrics])
 
   const sendAction = async (containerName: string, action: string) => {
     setPending(p => ({ ...p, [containerName]: true }))
@@ -102,6 +144,12 @@ export default function ServerDetail() {
   )
 
   const { server, containers, commands } = data
+
+  const tabs: { key: TabKey; label: string; count?: number }[] = [
+    { key: 'containers', label: 'Containers', count: containers.length },
+    { key: 'commands',   label: 'Commands',   count: commands.length   },
+    { key: 'metrics',    label: 'Metrics'                               },
+  ]
 
   return (
     <div className="p-6 space-y-6 max-w-6xl">
@@ -123,6 +171,7 @@ export default function ServerDetail() {
         <div className="ml-auto flex gap-6">
           <Metric label="CPU"  value={server.cpu_pct} />
           <Metric label="RAM"  value={server.ram_pct} />
+          <Metric label="Disk" value={server.disk_pct} />
           <div className="text-center">
             <p className="text-2xl font-bold text-purple-400">{server.docker_count ?? 0}</p>
             <p className="text-[10px] text-slate-600 uppercase tracking-wider">containers</p>
@@ -135,85 +184,146 @@ export default function ServerDetail() {
         )}
       </div>
 
-      {/* Containers */}
-      <div className="sp-card">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500">Containers</h2>
-          <span className="text-[10px] text-slate-700">synced every heartbeat</span>
+      {/* Tabs */}
+      <div className="sp-card p-0 overflow-hidden">
+        <div className="flex border-b border-sp-border">
+          {tabs.map(t => (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className={`px-5 py-3 text-xs font-semibold uppercase tracking-wider transition-colors flex items-center gap-2 ${
+                tab === t.key
+                  ? 'text-sp-accent border-b-2 border-sp-accent bg-sp-accent/5'
+                  : 'text-slate-500 hover:text-slate-300 border-b-2 border-transparent'
+              }`}
+            >
+              {t.label}
+              {t.count !== undefined && (
+                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                  tab === t.key ? 'bg-sp-accent/20 text-sp-accent' : 'bg-slate-700 text-slate-400'
+                }`}>{t.count}</span>
+              )}
+            </button>
+          ))}
         </div>
 
-        {containers.length === 0 ? (
-          <p className="text-slate-600 text-sm py-6 text-center">
-            {server.status === 'online'
-              ? 'No containers found. Agent will report them on next heartbeat.'
-              : 'Server is offline — container data may be stale.'}
-          </p>
-        ) : (
-          <div className="divide-y divide-sp-border">
-            {containers.map(c => {
-              const running = isRunning(c.status)
-              const busy    = pending[c.name] ?? false
-              return (
-                <div key={c.id} className="flex items-center gap-4 py-3 flex-wrap">
-                  <span className={`h-2 w-2 rounded-full shrink-0 ${running ? 'bg-green-400' : 'bg-slate-600'}`} />
+        <div className="p-5">
 
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-white font-mono">{c.name}</p>
-                    <p className="text-[11px] text-slate-600 truncate">{c.image}</p>
-                  </div>
-
-                  <div className="text-[11px] text-slate-500 font-mono hidden sm:block max-w-xs truncate">
-                    {c.status}
-                  </div>
-
-                  {c.ports && (
-                    <div className="text-[10px] text-slate-600 font-mono hidden md:block">
-                      {c.ports}
+          {/* Containers tab */}
+          {tab === 'containers' && (
+            containers.length === 0 ? (
+              <p className="text-slate-600 text-sm py-6 text-center">
+                {server.status === 'online'
+                  ? 'No containers found. Agent will report them on next heartbeat.'
+                  : 'Server is offline — container data may be stale.'}
+              </p>
+            ) : (
+              <div className="divide-y divide-sp-border">
+                {containers.map(c => {
+                  const running = isRunning(c.status)
+                  const busy    = pending[c.name] ?? false
+                  return (
+                    <div key={c.id} className="flex items-center gap-4 py-3 flex-wrap">
+                      <span className={`h-2 w-2 rounded-full shrink-0 ${running ? 'bg-green-400' : 'bg-slate-600'}`} />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-white font-mono">{c.name}</p>
+                        <p className="text-[11px] text-slate-600 truncate">{c.image}</p>
+                      </div>
+                      <div className="text-[11px] text-slate-500 font-mono hidden sm:block max-w-xs truncate">
+                        {c.status}
+                      </div>
+                      {c.ports && (
+                        <div className="text-[10px] text-slate-600 font-mono hidden md:block">{c.ports}</div>
+                      )}
+                      <div className="flex gap-1.5 shrink-0">
+                        {running ? (
+                          <>
+                            <ActionBtn label="Stop"    color="red"    busy={busy} onClick={() => sendAction(c.name, 'stop')} />
+                            <ActionBtn label="Restart" color="yellow" busy={busy} onClick={() => sendAction(c.name, 'restart')} />
+                          </>
+                        ) : (
+                          <ActionBtn label="Start" color="green" busy={busy} onClick={() => sendAction(c.name, 'start')} />
+                        )}
+                      </div>
                     </div>
-                  )}
+                  )
+                })}
+              </div>
+            )
+          )}
 
-                  {/* Action buttons */}
-                  <div className="flex gap-1.5 shrink-0">
-                    {running ? (
-                      <>
-                        <ActionBtn label="Stop"    color="red"    busy={busy} onClick={() => sendAction(c.name, 'stop')} />
-                        <ActionBtn label="Restart" color="yellow" busy={busy} onClick={() => sendAction(c.name, 'restart')} />
-                      </>
-                    ) : (
-                      <ActionBtn label="Start" color="green" busy={busy} onClick={() => sendAction(c.name, 'start')} />
+          {/* Commands tab */}
+          {tab === 'commands' && (
+            commands.length === 0 ? (
+              <p className="text-slate-600 text-sm py-6 text-center">No commands issued yet.</p>
+            ) : (
+              <div className="divide-y divide-sp-border">
+                {commands.map(cmd => (
+                  <div key={cmd.id} className="flex items-center gap-3 py-2.5 text-xs flex-wrap">
+                    <CommandStatusBadge status={cmd.status} />
+                    <span className="font-mono text-slate-300">{cmd.container}</span>
+                    <span className={`font-bold uppercase text-[10px] ${
+                      cmd.action === 'stop'    ? 'text-red-400' :
+                      cmd.action === 'start'   ? 'text-green-400' :
+                      'text-yellow-400'
+                    }`}>{cmd.action}</span>
+                    {cmd.result && (
+                      <span className="text-slate-600 font-mono truncate max-w-xs">{cmd.result}</span>
+                    )}
+                    <span className="text-slate-700 ml-auto">{timeAgo(cmd.created_at)}</span>
+                    {cmd.requested_by && (
+                      <span className="text-slate-700">by {cmd.requested_by}</span>
                     )}
                   </div>
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Recent commands */}
-      {commands.length > 0 && (
-        <div className="sp-card">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-4">Recent Commands</h2>
-          <div className="divide-y divide-sp-border">
-            {commands.map(cmd => (
-              <div key={cmd.id} className="flex items-center gap-3 py-2.5 text-xs flex-wrap">
-                <CommandStatusBadge status={cmd.status} />
-                <span className="font-mono text-slate-300">{cmd.container}</span>
-                <span className={`font-bold uppercase text-[10px] ${
-                  cmd.action === 'stop'    ? 'text-red-400' :
-                  cmd.action === 'start'   ? 'text-green-400' :
-                  'text-yellow-400'
-                }`}>{cmd.action}</span>
-                {cmd.result && <span className="text-slate-600 font-mono truncate max-w-xs">{cmd.result}</span>}
-                <span className="text-slate-700 ml-auto">{timeAgo(cmd.created_at)}</span>
-                {cmd.requested_by && (
-                  <span className="text-slate-700">by {cmd.requested_by}</span>
-                )}
+                ))}
               </div>
-            ))}
-          </div>
+            )
+          )}
+
+          {/* Metrics tab */}
+          {tab === 'metrics' && (
+            mLoading && metrics.length === 0 ? (
+              <div className="py-12 text-center text-slate-600 text-sm animate-pulse">Loading metrics…</div>
+            ) : metrics.length === 0 ? (
+              <p className="text-slate-600 text-sm py-6 text-center">No metric history yet. Metrics are recorded on each heartbeat (every 30s).</p>
+            ) : (
+              <div className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-slate-500">Last {metrics.length} heartbeats (oldest → newest)</p>
+                  <p className="text-[10px] text-slate-700">refreshes every 30s</p>
+                </div>
+                <ResponsiveContainer width="100%" height={260}>
+                  <LineChart data={metrics} margin={{ top: 4, right: 12, left: -20, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                    <XAxis
+                      dataKey="time"
+                      tick={{ fill: '#64748b', fontSize: 10 }}
+                      axisLine={false} tickLine={false}
+                      interval="preserveStartEnd"
+                    />
+                    <YAxis
+                      domain={[0, 100]}
+                      tick={{ fill: '#64748b', fontSize: 10 }}
+                      axisLine={false} tickLine={false}
+                      unit="%"
+                    />
+                    <Tooltip
+                      contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 8, fontSize: 12 }}
+                      labelStyle={{ color: '#94a3b8' }}
+                      formatter={(v: number) => `${v}%`}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 11, color: '#64748b' }} />
+                    <Line type="monotone" dataKey="cpu_pct"  name="CPU"  stroke="#3b82f6" strokeWidth={2} dot={false} connectNulls />
+                    <Line type="monotone" dataKey="ram_pct"  name="RAM"  stroke="#8b5cf6" strokeWidth={2} dot={false} connectNulls />
+                    <Line type="monotone" dataKey="disk_pct" name="Disk" stroke="#f59e0b" strokeWidth={2} dot={false} connectNulls />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            )
+          )}
+
         </div>
-      )}
+      </div>
 
     </div>
   )

@@ -12,6 +12,8 @@ import Backups from './pages/Backups'
 import BackupDetail from './pages/BackupDetail'
 import Alerts from './pages/Alerts'
 import Monitoring from './pages/Monitoring'
+import Users from './pages/Users'
+import Settings from './pages/Settings'
 import Placeholder from './pages/Placeholder'
 
 export default function App() {
@@ -35,8 +37,8 @@ export default function App() {
         <Route path="monitoring"          element={<Monitoring />} />
         <Route path="alerts"            element={<Alerts />} />
         <Route path="logs"              element={<Placeholder title="Logs" desc="Container and system logs. Coming in Phase 7." />} />
-        <Route path="users"             element={<Placeholder title="Users"      desc="User management." />} />
-        <Route path="settings"          element={<Placeholder title="Settings"   desc="System configuration." />} />
+        <Route path="users"             element={<Users />} />
+        <Route path="settings"          element={<Settings />} />
         <Route path="audit-logs"        element={<Placeholder title="Audit Logs" desc="Action history. Coming in Phase 6." />} />
         <Route path="*"                 element={<Placeholder title="404"        desc="Page not found." />} />
       </Route>
