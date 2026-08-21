@@ -79,5 +79,38 @@ module.exports = function containersRouter(pool) {
     }
   })
 
+  // GET /api/container-commands?limit=100&offset=0&server_id=
+  router.get('/api/container-commands', requireAuth, async (req, res) => {
+    const limit    = Math.min(parseInt(req.query.limit  || '100', 10), 500)
+    const offset   = parseInt(req.query.offset || '0', 10)
+    const serverId = req.query.server_id || ''
+
+    const conditions = []
+    const params     = []
+
+    if (serverId) { params.push(serverId); conditions.push(`server_id = $${params.length}`) }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
+    params.push(limit, offset)
+
+    try {
+      const { rows } = await pool.query(`
+        SELECT id, server_id, container, action, status, result, requested_by, created_at
+        FROM container_commands
+        ${where}
+        ORDER BY created_at DESC
+        LIMIT $${params.length - 1} OFFSET $${params.length}
+      `, params)
+
+      const { rows: cnt } = await pool.query(
+        `SELECT COUNT(*)::int AS total FROM container_commands ${where}`,
+        params.slice(0, -2)
+      )
+
+      res.json({ commands: rows, total: cnt[0].total, limit, offset })
+    } catch (err) {
+      res.status(500).json({ error: 'internal server error' })
+    }
+  })
+
   return router
 }

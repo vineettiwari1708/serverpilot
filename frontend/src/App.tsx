@@ -7,7 +7,9 @@ import Servers from './pages/Servers'
 import ServerDetail from './pages/ServerDetail'
 import Applications from './pages/Applications'
 import AppDetail from './pages/AppDetail'
+import Deployments from './pages/Deployments'
 import DeploymentLog from './pages/DeploymentLog'
+import Logs from './pages/Logs'
 import Backups from './pages/Backups'
 import BackupDetail from './pages/BackupDetail'
 import Alerts from './pages/Alerts'
@@ -32,12 +34,13 @@ export default function App() {
         <Route path="servers/:id"       element={<ServerDetail />} />
         <Route path="applications"      element={<Applications />} />
         <Route path="applications/:id"  element={<AppDetail />} />
+        <Route path="deployments"         element={<Deployments />} />
         <Route path="deployments/:id"   element={<DeploymentLog />} />
         <Route path="backups"             element={<Backups />} />
         <Route path="backups/:id"         element={<BackupDetail />} />
         <Route path="monitoring"          element={<Monitoring />} />
         <Route path="alerts"            element={<Alerts />} />
-        <Route path="logs"              element={<Placeholder title="Logs" desc="Container and system logs. Coming in Phase 7." />} />
+        <Route path="logs"              element={<Logs />} />
         <Route path="users"             element={<Users />} />
         <Route path="settings"          element={<Settings />} />
         <Route path="audit-logs"          element={<AuditLog />} />

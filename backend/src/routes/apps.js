@@ -147,6 +147,42 @@ module.exports = function appsRouter(pool) {
     }
   })
 
+  // GET /api/deployments?limit=50&offset=0&status=&app_id=
+  router.get('/api/deployments', requireAuth, async (req, res) => {
+    const limit  = Math.min(parseInt(req.query.limit  || '50', 10), 200)
+    const offset = parseInt(req.query.offset || '0', 10)
+    const status = req.query.status || ''
+    const appId  = req.query.app_id || ''
+
+    const conditions = []
+    const params     = []
+
+    if (status) { params.push(status); conditions.push(`status = $${params.length}`) }
+    if (appId)  { params.push(appId);  conditions.push(`app_id = $${params.length}`) }
+
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
+    params.push(limit, offset)
+
+    try {
+      const { rows } = await pool.query(`
+        SELECT id, app_id, app_name, server_id, server_name, status, deployed_by, started_at, finished_at
+        FROM deployments
+        ${where}
+        ORDER BY started_at DESC
+        LIMIT $${params.length - 1} OFFSET $${params.length}
+      `, params)
+
+      const { rows: cnt } = await pool.query(
+        `SELECT COUNT(*)::int AS total FROM deployments ${where}`,
+        params.slice(0, -2)
+      )
+
+      res.json({ deployments: rows, total: cnt[0].total, limit, offset })
+    } catch (err) {
+      res.status(500).json({ error: 'internal server error' })
+    }
+  })
+
   // GET /api/deployments/:id  (full detail with log)
   router.get('/api/deployments/:id', requireAuth, async (req, res) => {
     try {
