@@ -140,7 +140,7 @@ module.exports = function agentRouter(pool) {
   router.get('/api/agent/deployments', agentAuth(pool), async (req, res) => {
     try {
       const { rows } = await pool.query(
-        `SELECT d.id, d.app_id, d.app_name, d.compose_yaml,
+        `SELECT d.id, d.app_id, d.app_name, d.compose_yaml, d.env_vars,
                 a.health_check_url
          FROM   deployments d
          JOIN   applications a ON a.id = d.app_id

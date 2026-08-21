@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../services/api'
+import { usePageTitle } from '../hooks/usePageTitle'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend,
@@ -26,6 +27,26 @@ interface StatusData {
   timestamp: string
 }
 
+interface ServerSummary { total: number; online: number; offline: number; containers: number }
+interface ServerHealth  { name: string; cpu: number; ram: number }
+
+interface RecentDeployment {
+  id:          string
+  app_name:    string
+  server_name: string
+  status:      string
+  started_at:  string
+}
+
+interface OpenAlert {
+  id:          string
+  server_name: string
+  metric:      string
+  severity:    string
+  message:     string
+  created_at:  string
+}
+
 // ── Stat card config ──────────────────────────────────────────────────────────
 
 const statCardConfig = [
@@ -35,62 +56,80 @@ const statCardConfig = [
   { key: 'containers', label: 'Running Containers', color: 'text-purple-400', ring: 'ring-purple-500/20', bg: 'bg-purple-500/10' },
 ] as const
 
-interface ServerSummary { total: number; online: number; offline: number; containers: number }
-interface ServerHealth { name: string; cpu: number; ram: number }
+const DEPLOY_STATUS_COLOR: Record<string, string> = {
+  success:      'text-green-400',
+  failed:       'text-red-400',
+  running:      'text-blue-400',
+  health_check: 'text-yellow-400',
+  pending:      'text-slate-500',
+}
 
-// ── Build phases tracker ──────────────────────────────────────────────────────
-
-const phases = [
-  { id: '1a', label: 'Skeleton + Infrastructure',      done: true  },
-  { id: '1b', label: 'Auth + Database Schema',         done: true  },
-  { id: '2',  label: 'Agent Registration + Heartbeat', done: true  },
-  { id: '3',  label: 'Docker Container Management',    done: true  },
-  { id: '4',  label: 'Application Deployment',         done: true  },
-  { id: '5',  label: 'Backup + Restore',               done: true  },
-  { id: '6',  label: 'Alerts + Monitoring',            done: true  },
-  { id: '7',  label: 'Polish + Charts',                done: true  },
-]
+const ALERT_SEVERITY_COLOR: Record<string, string> = {
+  critical: 'text-red-400 bg-red-500/10 border-red-500/20',
+  warning:  'text-yellow-400 bg-yellow-500/10 border-yellow-500/20',
+  offline:  'text-orange-400 bg-orange-500/10 border-orange-500/20',
+}
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
-  const [data,    setData]    = useState<StatusData | null>(null)
-  const [state,   setState]   = useState<'loading' | 'ok' | 'degraded' | 'error'>('loading')
-  const [summary, setSummary] = useState<ServerSummary>({ total: 0, online: 0, offline: 0, containers: 0 })
-  const [health,  setHealth]  = useState<ServerHealth[]>([])
+  usePageTitle('Dashboard')
+  const [data,        setData]        = useState<StatusData | null>(null)
+  const [state,       setState]       = useState<'loading' | 'ok' | 'degraded' | 'error'>('loading')
+  const [summary,     setSummary]     = useState<ServerSummary>({ total: 0, online: 0, offline: 0, containers: 0 })
+  const [health,      setHealth]      = useState<ServerHealth[]>([])
+  const [deployments, setDeployments] = useState<RecentDeployment[]>([])
+  const [alerts,      setAlerts]      = useState<OpenAlert[]>([])
+
+  const pollStatus = () => {
+    fetch('/api/status')
+      .then(r => { if (!r.ok) throw new Error(); return r.json() })
+      .then((d: StatusData) => { setData(d); setState(d.status === 'ok' ? 'ok' : 'degraded') })
+      .catch(() => { setState('error'); setData(null) })
+  }
+
+  const pollServers = () => {
+    api.get('/api/servers')
+      .then(r => r.ok ? r.json() : null)
+      .then((d: { summary: ServerSummary } | null) => { if (d) setSummary(d.summary) })
+      .catch(() => {})
+  }
+
+  const pollHealth = () => {
+    api.get('/api/monitoring/summary')
+      .then(r => r.ok ? r.json() : null)
+      .then((d: { servers: { name: string; cpu_pct: number | null; ram_pct: number | null }[] } | null) => {
+        if (d) setHealth(d.servers.map(s => ({
+          name: s.name,
+          cpu:  Math.round(s.cpu_pct ?? 0),
+          ram:  Math.round(s.ram_pct ?? 0),
+        })))
+      })
+      .catch(() => {})
+  }
+
+  const pollDeployments = () => {
+    api.get('/api/deployments?limit=8')
+      .then(r => r.ok ? r.json() : null)
+      .then((d: { deployments: RecentDeployment[] } | null) => { if (d) setDeployments(d.deployments) })
+      .catch(() => {})
+  }
+
+  const pollAlerts = () => {
+    api.get('/api/alerts')
+      .then(r => r.ok ? r.json() : null)
+      .then((d: { alerts: OpenAlert[] } | null) => { if (d) setAlerts(d.alerts.slice(0, 6)) })
+      .catch(() => {})
+  }
 
   useEffect(() => {
-    const pollStatus = () => {
-      fetch('/api/status')
-        .then(r => { if (!r.ok) throw new Error(); return r.json() })
-        .then((d: StatusData) => { setData(d); setState(d.status === 'ok' ? 'ok' : 'degraded') })
-        .catch(() => { setState('error'); setData(null) })
-    }
-    const pollServers = () => {
-      api.get('/api/servers')
-        .then(r => r.ok ? r.json() : null)
-        .then((d: { summary: ServerSummary } | null) => { if (d) setSummary(d.summary) })
-        .catch(() => {})
-    }
-    const pollHealth = () => {
-      api.get('/api/monitoring/summary')
-        .then(r => r.ok ? r.json() : null)
-        .then((d: { servers: { name: string; cpu_pct: number | null; ram_pct: number | null }[] } | null) => {
-          if (d) setHealth(d.servers.map(s => ({
-            name: s.name,
-            cpu:  Math.round(s.cpu_pct ?? 0),
-            ram:  Math.round(s.ram_pct ?? 0),
-          })))
-        })
-        .catch(() => {})
-    }
-    pollStatus()
-    pollServers()
-    pollHealth()
+    pollStatus(); pollServers(); pollHealth(); pollDeployments(); pollAlerts()
     const t1 = setInterval(pollStatus,  30_000)
     const t2 = setInterval(pollServers, 30_000)
     const t3 = setInterval(pollHealth,  30_000)
-    return () => { clearInterval(t1); clearInterval(t2); clearInterval(t3) }
+    const t4 = setInterval(pollDeployments, 15_000)
+    const t5 = setInterval(pollAlerts,      15_000)
+    return () => { clearInterval(t1); clearInterval(t2); clearInterval(t3); clearInterval(t4); clearInterval(t5) }
   }, [])
 
   return (
@@ -100,7 +139,7 @@ export default function Dashboard() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white">Dashboard</h1>
-          <p className="text-slate-500 text-sm mt-0.5">ServerPilot Local — Control Plane</p>
+          <p className="text-slate-500 text-sm mt-0.5">ServerPilot — Control Plane</p>
         </div>
         {data && (
           <div className="text-right">
@@ -120,7 +159,7 @@ export default function Dashboard() {
         ))}
       </div>
 
-      {/* Status + Progress row */}
+      {/* Status + Alerts row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
         {/* Infrastructure status */}
@@ -129,7 +168,6 @@ export default function Dashboard() {
             <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500">Infrastructure</h2>
             <span className="text-[10px] font-mono text-slate-700">polls every 30s</span>
           </div>
-
           <div className="space-y-1">
             <ServiceRow
               name="Backend API"
@@ -150,7 +188,6 @@ export default function Dashboard() {
               detail={data?.services.redis.error}
             />
           </div>
-
           {data?.timestamp && (
             <p className="text-[10px] text-slate-700 mt-4 font-mono">
               Last check: {new Date(data.timestamp).toLocaleTimeString()}
@@ -158,33 +195,32 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* Build progress */}
-        <div className="sp-card">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-4">Build Progress</h2>
-          <div className="space-y-1.5">
-            {phases.map(p => (
-              <Link
-                key={p.id}
-                to={`/docs/${p.id}`}
-                className="flex items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-sp-hover transition-colors group"
-              >
-                <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 border ${
-                  p.done
-                    ? 'bg-green-500/15 text-green-400 border-green-500/30'
-                    : 'bg-transparent text-slate-700 border-sp-border group-hover:border-slate-600'
-                }`}>
-                  {p.done ? '✓' : p.id.toUpperCase()}
-                </div>
-                <span className={`text-sm flex-1 ${p.done ? 'text-slate-300' : 'text-slate-600 group-hover:text-slate-400'}`}>
-                  {p.label}
-                </span>
-                {p.done
-                  ? <span className="text-[10px] font-bold text-green-500 tracking-wider">DONE</span>
-                  : <span className="text-[10px] text-slate-700 opacity-0 group-hover:opacity-100 transition-opacity">View →</span>
-                }
-              </Link>
-            ))}
+        {/* Open Alerts */}
+        <div className="sp-card p-0 overflow-hidden">
+          <div className="px-4 py-3 border-b border-sp-border flex items-center justify-between">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500">Open Alerts</h2>
+            <Link to="/alerts" className="text-[10px] text-slate-600 hover:text-slate-400 transition-colors">View all →</Link>
           </div>
+          {alerts.length === 0 ? (
+            <div className="px-4 py-8 text-center">
+              <p className="text-green-400 text-sm font-semibold">All clear</p>
+              <p className="text-slate-600 text-xs mt-1">No open alerts</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-sp-border">
+              {alerts.map(a => (
+                <div key={a.id} className="px-4 py-2.5 flex items-start gap-3">
+                  <span className={`mt-0.5 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded border shrink-0 ${ALERT_SEVERITY_COLOR[a.severity] || 'text-slate-400 bg-slate-500/10 border-slate-500/20'}`}>
+                    {a.severity}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs text-slate-300 truncate">{a.server_name} — {a.metric.replace(/_/g, ' ')}</p>
+                    <p className="text-[10px] text-slate-600 truncate">{a.message}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
       </div>
@@ -215,27 +251,43 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Quick links */}
-      <div className="sp-card">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3">API Endpoints</h2>
-        <div className="flex flex-wrap gap-2">
-          {[
-            { href: '/health',      label: 'GET /health'      },
-            { href: '/api/health',  label: 'GET /api/health'  },
-            { href: '/api/status',  label: 'GET /api/status'  },
-            { href: 'http://localhost:8080', label: 'Traefik :8080', external: true },
-          ].map(l => (
-            <a
-              key={l.href}
-              href={l.href}
-              target="_blank"
-              rel="noreferrer"
-              className="px-3 py-1.5 rounded-lg bg-sp-hover border border-sp-border text-slate-500 hover:text-slate-200 hover:border-slate-600 transition-colors text-xs font-mono"
-            >
-              {l.label}
-            </a>
-          ))}
+      {/* Recent Deployments */}
+      <div className="sp-card p-0 overflow-hidden">
+        <div className="px-4 py-3 border-b border-sp-border flex items-center justify-between">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500">Recent Deployments</h2>
+          <Link to="/deployments" className="text-[10px] text-slate-600 hover:text-slate-400 transition-colors">View all →</Link>
         </div>
+        {deployments.length === 0 ? (
+          <div className="px-4 py-8 text-center text-slate-600 text-sm">No deployments yet</div>
+        ) : (
+          <table className="w-full text-sm">
+            <tbody>
+              {deployments.map(d => (
+                <tr key={d.id} className="border-b border-sp-border last:border-0 hover:bg-sp-hover transition-colors">
+                  <td className="px-4 py-2.5">
+                    <Link to={`/applications/${d.id}`} className="text-slate-300 hover:text-white font-medium text-xs transition-colors">
+                      {d.app_name}
+                    </Link>
+                    <p className="text-[10px] text-slate-600 font-mono">{d.server_name}</p>
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <span className={`text-xs font-semibold ${DEPLOY_STATUS_COLOR[d.status] || 'text-slate-500'}`}>
+                      {d.status.replace('_', ' ').toUpperCase()}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2.5 text-right text-[10px] text-slate-600 font-mono whitespace-nowrap">
+                    {timeAgo(d.started_at)}
+                  </td>
+                  <td className="px-4 py-2.5 text-right">
+                    <Link to={`/deployments/${d.id}`} className="text-[10px] text-slate-600 hover:text-slate-300 transition-colors">
+                      log →
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
 
     </div>
@@ -299,4 +351,12 @@ function formatUptime(s: number): string {
   const h = Math.floor(s / 3600)
   const m = Math.floor((s % 3600) / 60)
   return `${h}h ${m}m`
+}
+
+function timeAgo(iso: string): string {
+  const sec = Math.floor((Date.now() - new Date(iso).getTime()) / 1000)
+  if (sec < 60)   return `${sec}s ago`
+  if (sec < 3600) return `${Math.floor(sec / 60)}m ago`
+  if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`
+  return `${Math.floor(sec / 86400)}d ago`
 }

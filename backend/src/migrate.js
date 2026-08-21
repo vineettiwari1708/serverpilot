@@ -221,6 +221,19 @@ const MIGRATIONS = [
     `,
   },
   {
+    name: '014_add_env_vars',
+    sql: `
+      ALTER TABLE applications ADD COLUMN IF NOT EXISTS env_vars JSONB DEFAULT '{}';
+      ALTER TABLE deployments   ADD COLUMN IF NOT EXISTS env_vars JSONB DEFAULT '{}';
+    `,
+  },
+  {
+    name: '015_add_server_tags',
+    sql: `
+      ALTER TABLE servers ADD COLUMN IF NOT EXISTS tags TEXT[] DEFAULT '{}';
+    `,
+  },
+  {
     name: '003_create_heartbeats',
     sql: `
       CREATE TABLE IF NOT EXISTS heartbeats (

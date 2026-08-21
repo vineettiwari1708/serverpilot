@@ -8,11 +8,12 @@ export interface AuthUser {
 }
 
 interface AuthContextType {
-  user:    AuthUser | null
-  token:   string | null
-  login:   (token: string, user: AuthUser) => void
-  logout:  () => void
-  loading: boolean
+  user:       AuthUser | null
+  token:      string | null
+  login:      (token: string, user: AuthUser) => void
+  logout:     () => void
+  updateUser: (patch: Partial<AuthUser>) => void
+  loading:    boolean
 }
 
 const AuthContext = createContext<AuthContextType | null>(null)
@@ -54,8 +55,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null)
   }
 
+  const updateUser = (patch: Partial<AuthUser>) => {
+    setUser(prev => {
+      if (!prev) return prev
+      const next = { ...prev, ...patch }
+      localStorage.setItem(USER_KEY, JSON.stringify(next))
+      return next
+    })
+  }
+
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, loading }}>
+    <AuthContext.Provider value={{ user, token, login, logout, updateUser, loading }}>
       {children}
     </AuthContext.Provider>
   )

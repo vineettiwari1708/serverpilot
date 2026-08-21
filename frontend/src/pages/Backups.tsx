@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../services/api'
+import { usePageTitle } from '../hooks/usePageTitle'
 
 interface BackupJob {
   id:          string
@@ -54,6 +55,7 @@ function fmtInterval(min: number) {
 }
 
 export default function Backups() {
+  usePageTitle('Backups')
   const [tab,       setTab]       = useState<'jobs' | 'schedules'>('jobs')
   const [jobs,      setJobs]      = useState<BackupJob[]>([])
   const [schedules, setSchedules] = useState<Schedule[]>([])

@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { api } from '../services/api'
 import { useAuth } from '../context/AuthContext'
+import { usePageTitle } from '../hooks/usePageTitle'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend,
@@ -33,6 +34,7 @@ interface ServerInfo {
   name:         string
   hostname:     string
   ip:           string | null
+  tags:         string[]
   status:       'online' | 'offline' | 'pending'
   last_seen:    string | null
   cpu_pct:      number | null
@@ -79,6 +81,7 @@ export default function ServerDetail() {
   const { user }  = useAuth()
   const isAdmin   = user?.role === 'admin'
 
+  usePageTitle(data?.server?.name ?? 'Server')
   const [data,      setData]      = useState<DetailResponse | null>(null)
   const [loading,   setLoading]   = useState(true)
   const [error,     setError]     = useState('')
@@ -89,6 +92,9 @@ export default function ServerDetail() {
   const [token,     setToken]     = useState<string | null>(null)
   const [showToken, setShowToken] = useState(false)
   const [deleting,  setDeleting]  = useState(false)
+  const [tagInput,  setTagInput]  = useState('')
+  const [tags,      setTags]      = useState<string[]>([])
+  const [savingTag, setSavingTag] = useState(false)
 
   const fetchData = useCallback(async () => {
     try {
@@ -96,6 +102,7 @@ export default function ServerDetail() {
       if (!res.ok) { setError('Server not found'); return }
       const d = await res.json() as DetailResponse
       setData(d)
+      setTags(d.server.tags ?? [])
       setError('')
     } catch {
       setError('Network error')
@@ -346,6 +353,61 @@ export default function ServerDetail() {
           )}
 
         </div>
+      </div>
+
+      {/* Tags */}
+      <div className="sp-card space-y-3">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500">Tags</h2>
+        <div className="flex flex-wrap gap-2 min-h-[28px]">
+          {tags.length === 0 && <p className="text-[11px] text-slate-700">No tags. Add environment labels like prod, staging, dev.</p>}
+          {tags.map(t => (
+            <span key={t} className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded border border-sp-border text-slate-400 bg-sp-hover">
+              {t}
+              {isAdmin && (
+                <button
+                  onClick={async () => {
+                    const next = tags.filter(x => x !== t)
+                    setTags(next)
+                    await api.put(`/api/servers/${id}`, { tags: next })
+                  }}
+                  className="text-slate-600 hover:text-red-400 leading-none"
+                >×</button>
+              )}
+            </span>
+          ))}
+        </div>
+        {isAdmin && (
+          <form
+            onSubmit={async e => {
+              e.preventDefault()
+              const val = tagInput.trim().toLowerCase()
+              if (!val || tags.includes(val)) { setTagInput(''); return }
+              const next = [...tags, val]
+              setSavingTag(true)
+              try {
+                await api.put(`/api/servers/${id}`, { tags: next })
+                setTags(next)
+                setTagInput('')
+              } finally { setSavingTag(false) }
+            }}
+            className="flex items-center gap-2"
+          >
+            <input
+              value={tagInput}
+              onChange={e => setTagInput(e.target.value.toLowerCase())}
+              placeholder="e.g. prod"
+              maxLength={32}
+              className="w-36 bg-sp-hover border border-sp-border rounded-lg px-2.5 py-1.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-sp-accent"
+            />
+            <button
+              type="submit"
+              disabled={!tagInput.trim() || savingTag}
+              className="px-3 py-1.5 rounded-lg bg-sp-hover border border-sp-border text-xs text-slate-400 hover:text-white hover:border-slate-500 disabled:opacity-40 transition-colors"
+            >
+              Add
+            </button>
+          </form>
+        )}
       </div>
 
       {/* Danger zone — admin only */}

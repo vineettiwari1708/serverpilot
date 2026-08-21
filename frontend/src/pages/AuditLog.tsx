@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { api } from '../services/api'
+import { usePageTitle } from '../hooks/usePageTitle'
 
 interface AuditEvent {
   id:          string
@@ -37,6 +38,7 @@ const ACTION_OPTIONS   = ['', 'app', 'container', 'user', 'backup']
 const LIMIT = 50
 
 export default function AuditLog() {
+  usePageTitle('Audit Log')
   const [data,       setData]       = useState<ApiResponse | null>(null)
   const [loading,    setLoading]    = useState(true)
   const [resource,   setResource]   = useState('')

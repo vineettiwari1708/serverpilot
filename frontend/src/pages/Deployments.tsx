@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../services/api'
+import { usePageTitle } from '../hooks/usePageTitle'
 
 interface Deployment {
   id:          string
@@ -27,6 +28,7 @@ const STATUS_CFG: Record<string, string> = {
 }
 
 export default function Deployments() {
+  usePageTitle('Deployments')
   const [deployments, setDeployments] = useState<Deployment[]>([])
   const [total,       setTotal]       = useState(0)
   const [loading,     setLoading]     = useState(true)

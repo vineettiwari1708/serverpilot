@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { api } from '../services/api'
+import { usePageTitle } from '../hooks/usePageTitle'
 
 interface Deployment {
   id:          string
@@ -27,6 +28,7 @@ const ACTIVE = new Set(['pending', 'running', 'health_check'])
 
 export default function DeploymentLog() {
   const { id } = useParams<{ id: string }>()
+  usePageTitle(dep ? `Deploy: ${dep.app_name}` : 'Deployment')
   const [dep,     setDep]     = useState<Deployment | null>(null)
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState('')

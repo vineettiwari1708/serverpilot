@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../services/api'
 import { useAuth } from '../context/AuthContext'
+import { usePageTitle } from '../hooks/usePageTitle'
 
 interface User {
   id: string; name: string; email: string; role: string; created_at: string
@@ -9,6 +10,7 @@ interface User {
 interface Form { name: string; email: string; password: string; role: string }
 
 export default function Users() {
+  usePageTitle('Users')
   const { user: me } = useAuth()
   const [users,      setUsers]     = useState<User[]>([])
   const [loading,    setLoading]   = useState(true)

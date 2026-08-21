@@ -67,18 +67,35 @@ module.exports = function appsRouter(pool) {
     }
   })
 
-  // PUT /api/apps/:id  (update compose YAML / health check)
+  // DELETE /api/apps/:id
+  router.delete('/api/apps/:id', requireAuth, async (req, res) => {
+    try {
+      const { rows } = await pool.query(
+        'DELETE FROM applications WHERE id = $1 RETURNING name', [req.params.id]
+      )
+      if (!rows.length) return res.status(404).json({ error: 'app not found' })
+      logAudit(pool, req, 'app.delete', 'application', req.params.id, { name: rows[0].name })
+      res.status(204).end()
+    } catch (err) {
+      res.status(500).json({ error: 'internal server error' })
+    }
+  })
+
+  // PUT /api/apps/:id  (update compose YAML / health check / env_vars)
   router.put('/api/apps/:id', requireAuth, async (req, res) => {
-    const { compose_yaml, health_check_url } = req.body || {}
+    const { compose_yaml, health_check_url, env_vars } = req.body || {}
     try {
       const { rows } = await pool.query(`
         UPDATE applications
         SET compose_yaml     = COALESCE($1, compose_yaml),
             health_check_url = COALESCE($2, health_check_url),
+            env_vars         = COALESCE($3, env_vars),
             updated_at       = NOW()
-        WHERE id = $3
+        WHERE id = $4
         RETURNING *
-      `, [compose_yaml || null, health_check_url ?? null, req.params.id])
+      `, [compose_yaml || null, health_check_url ?? null,
+          env_vars != null ? JSON.stringify(env_vars) : null,
+          req.params.id])
       if (!rows.length) return res.status(404).json({ error: 'app not found' })
       res.json({ app: rows[0] })
     } catch (err) {
@@ -103,10 +120,11 @@ module.exports = function appsRouter(pool) {
       if (!srv.length) return res.status(404).json({ error: 'server not found' })
 
       const { rows: dep } = await pool.query(`
-        INSERT INTO deployments (app_id, app_name, server_id, server_name, compose_yaml, deployed_by)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO deployments (app_id, app_name, server_id, server_name, compose_yaml, env_vars, deployed_by)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING id, status, started_at
-      `, [app[0].id, app[0].name, srv[0].id, srv[0].name, app[0].compose_yaml, req.user.email])
+      `, [app[0].id, app[0].name, srv[0].id, srv[0].name,
+          app[0].compose_yaml, JSON.stringify(app[0].env_vars || {}), req.user.email])
 
       logAudit(pool, req, 'app.deploy', 'deployment', dep[0].id, { app: app[0].name, server: srv[0].name })
       res.status(201).json({ deployment: dep[0] })

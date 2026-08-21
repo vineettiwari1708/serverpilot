@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../services/api'
+import { usePageTitle } from '../hooks/usePageTitle'
 
 interface App {
   id:               string
@@ -23,6 +24,7 @@ const STATUS_COLOR: Record<string, string> = {
 }
 
 export default function Applications() {
+  usePageTitle('Applications')
   const [apps,    setApps]    = useState<App[]>([])
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState('')

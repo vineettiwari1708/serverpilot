@@ -73,6 +73,49 @@ module.exports = function usersRouter(pool) {
     }
   })
 
+  // PUT /api/users/me  { name }
+  router.put('/api/users/me', requireAuth, async (req, res) => {
+    const { name } = req.body || {}
+    if (!name || !name.trim()) {
+      return res.status(400).json({ error: 'name is required' })
+    }
+    try {
+      const { rows } = await pool.query(`
+        UPDATE users SET name = $1, updated_at = NOW()
+        WHERE id = $2
+        RETURNING id, name, email, role
+      `, [name.trim(), req.user.id])
+      if (!rows.length) return res.status(404).json({ error: 'user not found' })
+      logAudit(pool, req, 'user.self_update', 'user', req.user.id, { name: name.trim() })
+      res.json({ user: rows[0] })
+    } catch (err) {
+      res.status(500).json({ error: 'internal server error' })
+    }
+  })
+
+  // PUT /api/users/me/password  { current_password, new_password }
+  router.put('/api/users/me/password', requireAuth, async (req, res) => {
+    const { current_password, new_password } = req.body || {}
+    if (!current_password || !new_password) {
+      return res.status(400).json({ error: 'current_password and new_password are required' })
+    }
+    if (new_password.length < 8) {
+      return res.status(400).json({ error: 'new password must be at least 8 characters' })
+    }
+    try {
+      const { rows } = await pool.query('SELECT password FROM users WHERE id = $1', [req.user.id])
+      if (!rows.length) return res.status(404).json({ error: 'user not found' })
+      const valid = await bcrypt.compare(current_password, rows[0].password)
+      if (!valid) return res.status(401).json({ error: 'current password is incorrect' })
+      const hash = await bcrypt.hash(new_password, 12)
+      await pool.query('UPDATE users SET password = $1, updated_at = NOW() WHERE id = $2', [hash, req.user.id])
+      logAudit(pool, req, 'user.password_change', 'user', req.user.id, {})
+      res.status(204).end()
+    } catch (err) {
+      res.status(500).json({ error: 'internal server error' })
+    }
+  })
+
   // DELETE /api/users/:id  (cannot delete self)
   router.delete('/api/users/:id', requireAuth, requireAdmin, async (req, res) => {
     if (req.params.id === req.user.id) {

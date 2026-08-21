@@ -53,6 +53,16 @@ function getRamPct() {
   return Math.round((1 - os.freemem() / os.totalmem()) * 100)
 }
 
+function getDiskPct() {
+  return new Promise((resolve) => {
+    exec("df / --output=pcent 2>/dev/null | tail -1", (err, stdout) => {
+      if (err || !stdout.trim()) return resolve(null)
+      const pct = parseInt(stdout.trim().replace('%', ''), 10)
+      resolve(isNaN(pct) ? null : pct)
+    })
+  })
+}
+
 // Returns array of { name, image, status, ports }
 function getContainers() {
   return new Promise((resolve) => {
@@ -104,16 +114,16 @@ function request(method, path, body, token) {
 
 async function sendHeartbeat() {
   try {
-    const [cpu_pct, containers] = await Promise.all([getCpuPct(), getContainers()])
+    const [cpu_pct, disk_pct, containers] = await Promise.all([getCpuPct(), getDiskPct(), getContainers()])
     const ram_pct       = getRamPct()
     const docker_count  = containers.filter(c => /^Up/i.test(c.status)).length
 
     const { status } = await request('POST', '/api/agent/heartbeat', {
-      cpu_pct, ram_pct, docker_count, containers,
+      cpu_pct, ram_pct, disk_pct, docker_count, containers,
     }, AGENT_TOKEN)
 
     if (status === 204) {
-      console.log(`[${new Date().toISOString()}] heartbeat OK  cpu=${cpu_pct}% ram=${ram_pct}% containers=${containers.length}`)
+      console.log(`[${new Date().toISOString()}] heartbeat OK  cpu=${cpu_pct}% ram=${ram_pct}% disk=${disk_pct}% containers=${containers.length}`)
     } else {
       console.error(`[${new Date().toISOString()}] heartbeat failed status=${status}`)
     }
@@ -209,16 +219,26 @@ async function executeDeployment(dep) {
     const composePath = path.join(appDir, 'docker-compose.yml')
     fs.writeFileSync(composePath, dep.compose_yaml, 'utf8')
 
+    // Write .env file if env_vars provided
+    const envVars = dep.env_vars && typeof dep.env_vars === 'object' ? dep.env_vars : {}
+    const envPath = path.join(appDir, '.env')
+    const envContent = Object.entries(envVars)
+      .map(([k, v]) => `${k}=${String(v).replace(/\n/g, '\\n')}`)
+      .join('\n')
+    fs.writeFileSync(envPath, envContent, 'utf8')
+    const envFlag = `--env-file ${envPath}`
+
     await alog(`Wrote compose file to ${composePath}`)
+    if (Object.keys(envVars).length) await alog(`Loaded ${Object.keys(envVars).length} env var(s)`)
     await setDeployStatus(dep.id, 'running')
 
     // Pull images
     await alog('Pulling images…')
-    await runCmd(`docker compose -f ${composePath} pull`, dep.id, alog)
+    await runCmd(`docker compose ${envFlag} -f ${composePath} pull`, dep.id, alog)
 
     // Start / update containers
     await alog('Starting containers…')
-    await runCmd(`docker compose -f ${composePath} up -d --remove-orphans`, dep.id, alog)
+    await runCmd(`docker compose ${envFlag} -f ${composePath} up -d --remove-orphans`, dep.id, alog)
 
     // Health check
     if (dep.health_check_url) {

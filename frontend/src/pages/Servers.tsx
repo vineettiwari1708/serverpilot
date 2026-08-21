@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../services/api'
 import { useAuth } from '../context/AuthContext'
+import { usePageTitle } from '../hooks/usePageTitle'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -10,6 +11,7 @@ interface Server {
   name:          string
   hostname:      string
   ip:            string | null
+  tags:          string[]
   status:        'online' | 'offline' | 'pending'
   last_seen:     string | null
   registered_at: string
@@ -24,6 +26,7 @@ interface Summary { total: number; online: number; offline: number; containers: 
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function Servers() {
+  usePageTitle('Servers')
   const { user } = useAuth()
   const navigate = useNavigate()
   const [servers,      setServers]      = useState<Server[]>([])
@@ -32,6 +35,7 @@ export default function Servers() {
   const [error,        setError]        = useState('')
   const [showOnboard,  setShowOnboard]  = useState(false)
   const [deleting,     setDeleting]     = useState<string | null>(null)
+  const [tagFilter,    setTagFilter]    = useState('')
 
   const isAdmin = user?.role === 'admin'
 
@@ -100,14 +104,41 @@ export default function Servers() {
         <SummaryCard label="Running Containers" value={summary.containers} color="text-purple-400" bg="bg-purple-500/10" ring="ring-purple-500/20" />
       </div>
 
+      {/* Tag filter */}
+      {servers.some(s => s.tags?.length > 0) && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[10px] text-slate-600 uppercase tracking-wider">Filter:</span>
+          <button
+            onClick={() => setTagFilter('')}
+            className={`text-[10px] font-semibold px-2.5 py-1 rounded-full border transition-colors ${!tagFilter ? 'border-sp-accent text-sp-accent bg-sp-accent/10' : 'border-sp-border text-slate-500 hover:text-slate-300'}`}
+          >
+            All
+          </button>
+          {Array.from(new Set(servers.flatMap(s => s.tags ?? []))).sort().map(tag => (
+            <button
+              key={tag}
+              onClick={() => setTagFilter(tag === tagFilter ? '' : tag)}
+              className={`text-[10px] font-semibold uppercase tracking-wider px-2.5 py-1 rounded-full border transition-colors ${tagFilter === tag ? 'border-sp-accent text-sp-accent bg-sp-accent/10' : 'border-sp-border text-slate-500 hover:text-slate-300'}`}
+            >
+              {tag}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Server list */}
       <div className="sp-card">
         {loading && <div className="py-12 text-center text-slate-600 text-sm animate-pulse">Loading servers…</div>}
         {!loading && error && <div className="py-12 text-center text-red-400 text-sm">{error}</div>}
         {!loading && !error && servers.length === 0 && <EmptyState onAdd={() => setShowOnboard(true)} isAdmin={isAdmin} />}
-        {!loading && !error && servers.length > 0 && (
+        {!loading && !error && servers.length > 0 && (() => {
+          const visible = tagFilter ? servers.filter(s => s.tags?.includes(tagFilter)) : servers
+          return (
           <div className="divide-y divide-sp-border">
-            {servers.map(s => (
+            {visible.length === 0 && (
+              <p className="py-8 text-center text-slate-600 text-sm">No servers tagged "{tagFilter}".</p>
+            )}
+            {visible.map(s => (
               <ServerRow
                 key={s.id}
                 server={s}
@@ -118,7 +149,8 @@ export default function Servers() {
               />
             ))}
           </div>
-        )}
+          )
+        })()}
       </div>
 
       {/* Onboarding modal */}
@@ -157,6 +189,16 @@ function ServerRow({ server: s, isAdmin, deleting, onDelete, onView }: {
       }`}>
         {s.status.toUpperCase()}
       </span>
+
+      {s.tags && s.tags.length > 0 && (
+        <div className="hidden sm:flex items-center gap-1 shrink-0">
+          {s.tags.map(t => (
+            <span key={t} className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border border-sp-border text-slate-600 bg-sp-hover">
+              {t}
+            </span>
+          ))}
+        </div>
+      )}
 
       <div className="flex items-center gap-4 flex-1 min-w-0">
         <MetricBar label="CPU" value={s.cpu_pct} color="bg-blue-500" />

@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { api } from '../services/api'
+import { usePageTitle } from '../hooks/usePageTitle'
 
 interface Command {
   id:           string
@@ -17,6 +18,7 @@ interface Server { id: string; name: string }
 const LIMIT = 100
 
 export default function Logs() {
+  usePageTitle('Logs')
   const [servers,  setServers]  = useState<Server[]>([])
   const [serverId, setServerId] = useState('')
   const [commands, setCommands] = useState<Command[]>([])

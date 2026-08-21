@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { api } from '../services/api'
+import { usePageTitle } from '../hooks/usePageTitle'
 
 interface Alert {
   id:              string
@@ -36,6 +37,7 @@ const METRIC_LABEL: Record<string, string> = {
 }
 
 export default function Alerts() {
+  usePageTitle('Alerts')
   const [alerts,  setAlerts]  = useState<Alert[]>([])
   const [counts,  setCounts]  = useState({ open: 0, acknowledged: 0 })
   const [filter,  setFilter]  = useState<'active' | 'resolved' | 'all'>('active')

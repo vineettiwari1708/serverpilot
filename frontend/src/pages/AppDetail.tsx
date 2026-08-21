@@ -1,16 +1,20 @@
-'use client'
 import { useEffect, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import { api } from '../services/api'
+import { useAuth } from '../context/AuthContext'
+import { usePageTitle } from '../hooks/usePageTitle'
 
 interface App {
   id:               string
   name:             string
   compose_yaml:     string
   health_check_url: string
+  env_vars:         Record<string, string>
   created_at:       string
   updated_at:       string
 }
+
+type EnvRow = { key: string; value: string; revealed: boolean }
 
 interface Deployment {
   id:          string
@@ -36,25 +40,36 @@ const STATUS_COLOR: Record<string, string> = {
 }
 
 export default function AppDetail() {
-  const { id } = useParams<{ id: string }>()
+  const { id }   = useParams<{ id: string }>()
+  const navigate = useNavigate()
+  const { user } = useAuth()
+  const isAdmin  = user?.role === 'admin'
 
+  usePageTitle(app?.name ?? 'Application')
   const [app,         setApp]         = useState<App | null>(null)
   const [deployments, setDeployments] = useState<Deployment[]>([])
   const [servers,     setServers]     = useState<Server[]>([])
   const [loading,     setLoading]     = useState(true)
   const [error,       setError]       = useState('')
 
-  // edit state
+  // compose edit state
   const [editing,      setEditing]      = useState(false)
   const [editYaml,     setEditYaml]     = useState('')
   const [editHealth,   setEditHealth]   = useState('')
   const [saving,       setSaving]       = useState(false)
   const [saveError,    setSaveError]    = useState('')
 
+  // env vars state
+  const [envRows,   setEnvRows]   = useState<EnvRow[]>([])
+  const [savingEnv, setSavingEnv] = useState(false)
+
   // deploy state
-  const [deploying,    setDeploying]    = useState(false)
+  const [deploying,      setDeploying]      = useState(false)
   const [deployServerId, setDeployServerId] = useState('')
-  const [deployError,  setDeployError]  = useState('')
+  const [deployError,    setDeployError]    = useState('')
+
+  // delete state
+  const [deleting, setDeleting] = useState(false)
 
   const load = async () => {
     try {
@@ -70,6 +85,7 @@ export default function AppDetail() {
       setServers(sv || [])
       setEditYaml(a.compose_yaml)
       setEditHealth(a.health_check_url)
+      setEnvRows(Object.entries(a.env_vars || {}).map(([k, v]) => ({ key: k, value: String(v), revealed: false })))
     } catch {
       setError('Failed to load')
     } finally {
@@ -123,6 +139,32 @@ export default function AppDetail() {
       alert('Network error')
     }
   }
+
+  const handleSaveEnv = async () => {
+    setSavingEnv(true)
+    try {
+      const env_vars = Object.fromEntries(
+        envRows.filter(r => r.key.trim()).map(r => [r.key.trim(), r.value])
+      )
+      const r = await api.put(`/api/apps/${id}`, { env_vars })
+      if (r.ok) { const data = await r.json(); setApp(data.app) }
+    } finally { setSavingEnv(false) }
+  }
+
+  const handleDeleteApp = async () => {
+    if (!confirm(`Delete "${app?.name}"?\n\nThis removes the app and all its deployment records. This cannot be undone.`)) return
+    setDeleting(true)
+    try {
+      const r = await api.delete(`/api/apps/${id}`)
+      if (r.ok) navigate('/applications', { replace: true })
+    } finally { setDeleting(false) }
+  }
+
+  const addEnvRow    = () => setEnvRows(r => [...r, { key: '', value: '', revealed: true }])
+  const removeEnvRow = (i: number) => setEnvRows(r => r.filter((_, j) => j !== i))
+  const setEnvKey    = (i: number, key: string) => setEnvRows(r => r.map((row, j) => j === i ? { ...row, key } : row))
+  const setEnvValue  = (i: number, value: string) => setEnvRows(r => r.map((row, j) => j === i ? { ...row, value } : row))
+  const toggleReveal = (i: number) => setEnvRows(r => r.map((row, j) => j === i ? { ...row, revealed: !row.revealed } : row))
 
   if (loading) return <div className="p-6 text-slate-500">Loading…</div>
   if (error)   return <div className="p-6 text-red-400">{error}</div>
@@ -226,6 +268,60 @@ export default function AppDetail() {
         )}
       </div>
 
+      {/* Environment variables */}
+      <div className="sp-card space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500">Environment Variables</h2>
+          <button onClick={addEnvRow}
+            className="text-[10px] font-semibold text-sp-accent hover:underline">
+            + Add Variable
+          </button>
+        </div>
+
+        {envRows.length === 0 && (
+          <p className="text-[11px] text-slate-600">
+            No environment variables. Variables are written to a <code className="text-slate-500">.env</code> file and passed to docker compose at deploy time.
+          </p>
+        )}
+
+        <div className="space-y-2">
+          {envRows.map((row, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <input
+                value={row.key}
+                onChange={e => setEnvKey(i, e.target.value)}
+                placeholder="KEY"
+                className="w-40 bg-sp-hover border border-sp-border rounded-lg px-2.5 py-1.5 text-xs text-slate-200 font-mono focus:outline-none focus:border-sp-accent uppercase"
+              />
+              <input
+                type={row.revealed ? 'text' : 'password'}
+                value={row.value}
+                onChange={e => setEnvValue(i, e.target.value)}
+                placeholder="value"
+                className="flex-1 bg-sp-hover border border-sp-border rounded-lg px-2.5 py-1.5 text-xs text-slate-200 font-mono focus:outline-none focus:border-sp-accent"
+              />
+              <button onClick={() => toggleReveal(i)}
+                className="text-[10px] text-slate-600 hover:text-slate-300 w-10 text-center">
+                {row.revealed ? 'hide' : 'show'}
+              </button>
+              <button onClick={() => removeEnvRow(i)}
+                className="text-[10px] text-red-500/40 hover:text-red-400 font-mono">
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+
+        {envRows.length > 0 && (
+          <div className="flex justify-end pt-1">
+            <button onClick={handleSaveEnv} disabled={savingEnv}
+              className="px-4 py-1.5 rounded-lg bg-sp-accent text-white text-xs font-semibold disabled:opacity-50 hover:bg-sp-accent/80 transition-colors">
+              {savingEnv ? 'Saving…' : 'Save Variables'}
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* Deployment history */}
       <div className="sp-card p-0 overflow-hidden">
         <div className="px-4 py-3 border-b border-sp-border">
@@ -240,7 +336,7 @@ export default function AppDetail() {
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Server</th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Started</th>
-                <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Finished</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider hidden sm:table-cell">Duration</th>
                 <th className="px-4 py-2.5" />
               </tr>
             </thead>
@@ -254,7 +350,7 @@ export default function AppDetail() {
                   </td>
                   <td className="px-4 py-3 text-slate-400 text-xs font-mono">{d.server_name}</td>
                   <td className="px-4 py-3 text-slate-500 text-xs">{new Date(d.started_at).toLocaleString()}</td>
-                  <td className="px-4 py-3 text-slate-500 text-xs">{d.finished_at ? new Date(d.finished_at).toLocaleString() : '—'}</td>
+                  <td className="px-4 py-3 text-slate-600 text-xs font-mono hidden sm:table-cell">{deployDuration(d.started_at, d.finished_at)}</td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-3">
                       <Link
@@ -279,6 +375,33 @@ export default function AppDetail() {
           </table>
         )}
       </div>
+
+      {/* Danger zone */}
+      {isAdmin && (
+        <div className="sp-card border border-red-500/20">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-red-500/70 mb-4">Danger Zone</h2>
+          <div className="flex items-start gap-4 flex-wrap">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm text-slate-300 font-medium">Delete Application</p>
+              <p className="text-[11px] text-slate-600 mt-0.5">
+                Permanently removes this app and all its deployment records. Running containers on servers are not affected.
+              </p>
+            </div>
+            <button onClick={handleDeleteApp} disabled={deleting}
+              className="shrink-0 px-4 py-1.5 rounded-lg border border-red-500/40 text-red-400 hover:bg-red-500/10 text-xs font-semibold transition-colors disabled:opacity-40">
+              {deleting ? 'Deleting…' : 'Delete App'}
+            </button>
+          </div>
+        </div>
+      )}
+
     </div>
   )
+}
+
+function deployDuration(start: string, end: string | null) {
+  if (!end) return '–'
+  const s = Math.round((new Date(end).getTime() - new Date(start).getTime()) / 1000)
+  if (s < 60) return `${s}s`
+  return `${Math.floor(s / 60)}m ${s % 60}s`
 }

@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../services/api'
+import { useAuth } from '../context/AuthContext'
+import { usePageTitle } from '../hooks/usePageTitle'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -25,11 +27,12 @@ const DEFAULTS: Thresholds = {
   offline_min: 5,
 }
 
-type Tab = 'thresholds' | 'notifications'
+type Tab = 'thresholds' | 'notifications' | 'profile'
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function Settings() {
+  usePageTitle('Settings')
   const [tab, setTab] = useState<Tab>('thresholds')
 
   return (
@@ -41,7 +44,7 @@ export default function Settings() {
 
       {/* Tab bar */}
       <div className="flex border-b border-sp-border -mb-2">
-        {(['thresholds', 'notifications'] as Tab[]).map(t => (
+        {(['thresholds', 'notifications', 'profile'] as Tab[]).map(t => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -58,6 +61,7 @@ export default function Settings() {
 
       {tab === 'thresholds'   && <ThresholdsTab />}
       {tab === 'notifications' && <NotificationsTab />}
+      {tab === 'profile'       && <ProfileTab />}
     </div>
   )
 }
@@ -355,5 +359,179 @@ function NotificationsTab() {
         ))}
       </div>
     </>
+  )
+}
+
+// ── Profile tab ───────────────────────────────────────────────────────────────
+
+function ProfileTab() {
+  const { user, updateUser } = useAuth()
+
+  // Name edit
+  const [nameVal,     setNameVal]     = useState(user?.name ?? '')
+  const [savingName,  setSavingName]  = useState(false)
+  const [nameSuccess, setNameSuccess] = useState(false)
+  const [nameError,   setNameError]   = useState('')
+
+  const handleSaveName = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setNameError('')
+    setNameSuccess(false)
+    if (!nameVal.trim()) { setNameError('Name cannot be empty'); return }
+    setSavingName(true)
+    try {
+      const r = await api.put('/api/users/me', { name: nameVal.trim() })
+      const data = await r.json()
+      if (r.ok) {
+        updateUser({ name: data.user.name })
+        setNameSuccess(true)
+      } else {
+        setNameError(data.error || 'Failed to update name')
+      }
+    } catch {
+      setNameError('Network error')
+    } finally {
+      setSavingName(false)
+    }
+  }
+
+  // Password change
+  const [current,  setCurrent]  = useState('')
+  const [next1,    setNext1]    = useState('')
+  const [next2,    setNext2]    = useState('')
+  const [saving,   setSaving]   = useState(false)
+  const [success,  setSuccess]  = useState(false)
+  const [error,    setError]    = useState('')
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    setSuccess(false)
+    if (next1 !== next2) { setError('New passwords do not match'); return }
+    if (next1.length < 8) { setError('New password must be at least 8 characters'); return }
+    setSaving(true)
+    try {
+      const r = await api.put('/api/users/me/password', {
+        current_password: current,
+        new_password: next1,
+      })
+      if (r.ok) {
+        setSuccess(true)
+        setCurrent('')
+        setNext1('')
+        setNext2('')
+      } else {
+        const data = await r.json()
+        setError(data.error || 'Failed to change password')
+      }
+    } catch {
+      setError('Network error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Name edit */}
+      <div className="sp-card space-y-3">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500">Account</h2>
+        <div className="grid grid-cols-2 gap-4 mb-3">
+          <div>
+            <p className="text-[11px] text-slate-600 uppercase tracking-wider mb-1">Email</p>
+            <p className="text-sm text-slate-400 font-mono">{user?.email}</p>
+          </div>
+          <div>
+            <p className="text-[11px] text-slate-600 uppercase tracking-wider mb-1">Role</p>
+            <p className="text-sm text-slate-400 capitalize">{user?.role}</p>
+          </div>
+        </div>
+        {nameSuccess && (
+          <p className="text-xs text-green-400 bg-green-500/10 border border-green-500/20 rounded px-3 py-2">Name updated.</p>
+        )}
+        {nameError && (
+          <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded px-3 py-2">{nameError}</p>
+        )}
+        <form onSubmit={handleSaveName} className="flex items-end gap-3">
+          <div className="flex-1">
+            <label className="block text-xs text-slate-500 mb-1">Display Name</label>
+            <input
+              value={nameVal}
+              onChange={e => { setNameVal(e.target.value); setNameSuccess(false) }}
+              required
+              className="w-full bg-sp-hover border border-sp-border rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-sp-accent"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={savingName || nameVal.trim() === user?.name}
+            className="px-4 py-2 rounded-lg bg-sp-accent hover:bg-sp-accent/80 text-white text-sm font-semibold disabled:opacity-40 transition-colors shrink-0"
+          >
+            {savingName ? 'Saving…' : 'Save'}
+          </button>
+        </form>
+      </div>
+
+      {/* Change password */}
+      <div className="sp-card space-y-4">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500">Change Password</h2>
+
+        {success && (
+          <p className="text-xs text-green-400 bg-green-500/10 border border-green-500/20 rounded px-3 py-2">
+            Password changed successfully.
+          </p>
+        )}
+        {error && (
+          <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded px-3 py-2">
+            {error}
+          </p>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <div>
+            <label className="block text-xs text-slate-500 mb-1">Current Password</label>
+            <input
+              type="password"
+              value={current}
+              onChange={e => setCurrent(e.target.value)}
+              required
+              autoComplete="current-password"
+              className="w-full bg-sp-hover border border-sp-border rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-sp-accent"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-slate-500 mb-1">New Password</label>
+            <input
+              type="password"
+              value={next1}
+              onChange={e => setNext1(e.target.value)}
+              required
+              autoComplete="new-password"
+              className="w-full bg-sp-hover border border-sp-border rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-sp-accent"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-slate-500 mb-1">Confirm New Password</label>
+            <input
+              type="password"
+              value={next2}
+              onChange={e => setNext2(e.target.value)}
+              required
+              autoComplete="new-password"
+              className="w-full bg-sp-hover border border-sp-border rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-sp-accent"
+            />
+          </div>
+          <div className="flex justify-end pt-1">
+            <button
+              type="submit"
+              disabled={saving}
+              className="px-5 py-2 rounded-lg bg-sp-accent hover:bg-sp-accent/80 text-white text-sm font-semibold disabled:opacity-50 transition-colors"
+            >
+              {saving ? 'Saving…' : 'Change Password'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   )
 }

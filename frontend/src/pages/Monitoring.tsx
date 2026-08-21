@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../services/api'
+import { usePageTitle } from '../hooks/usePageTitle'
 
 interface ServerSummary {
   id:                 string
@@ -62,6 +63,7 @@ function Sparkline({ points, key: metric }: { points: MetricPoint[]; key: keyof 
 }
 
 export default function Monitoring() {
+  usePageTitle('Monitoring')
   const [servers,  setServers]  = useState<ServerSummary[]>([])
   const [metrics,  setMetrics]  = useState<Record<string, MetricPoint[]>>({})
   const [loading,  setLoading]  = useState(true)

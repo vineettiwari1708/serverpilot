@@ -23,6 +23,7 @@ module.exports = function serversRouter(pool) {
           s.name,
           s.hostname,
           s.ip,
+          s.tags,
           s.registered_at,
           s.last_seen,
           CASE
@@ -55,6 +56,29 @@ module.exports = function serversRouter(pool) {
         summary: { total, online, offline, containers },
       })
     } catch (err) {
+      res.status(500).json({ error: 'internal server error' })
+    }
+  })
+
+  // PUT /api/servers/:id  { tags?, name? }
+  router.put('/api/servers/:id', requireAuth, requireAdmin, async (req, res) => {
+    const { name, tags } = req.body || {}
+    if (tags !== undefined && !Array.isArray(tags)) {
+      return res.status(400).json({ error: 'tags must be an array of strings' })
+    }
+    const cleanTags = tags ? tags.map(String).map(t => t.trim().toLowerCase()).filter(Boolean) : undefined
+    try {
+      const { rows } = await pool.query(`
+        UPDATE servers
+        SET name = COALESCE($1, name),
+            tags = COALESCE($2, tags)
+        WHERE id = $3
+        RETURNING id, name, hostname, ip, tags
+      `, [name || null, cleanTags ?? null, req.params.id])
+      if (!rows.length) return res.status(404).json({ error: 'server not found' })
+      logAudit(pool, req, 'server.update', 'server', req.params.id, { name, tags: cleanTags })
+      res.json({ server: rows[0] })
+    } catch {
       res.status(500).json({ error: 'internal server error' })
     }
   })
