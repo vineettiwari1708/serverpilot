@@ -19,6 +19,7 @@ A self-hosted server management control plane. Deploy and monitor Docker applica
 | **Audit log** | Every user action (deploy, delete, login, etc.) is recorded with user, IP, and detail. |
 | **User management** | Admin and viewer roles. Admins can create users and change roles. All users can change their own name and password. |
 | **Command palette** | Press `Ctrl+K` / `Cmd+K` anywhere to fuzzy-search servers and apps. |
+| **Deploy webhooks** | Each app has a unique webhook URL. `POST` it from any CI/CD pipeline to trigger a deploy — no auth token needed. |
 
 ---
 
@@ -304,6 +305,8 @@ All API routes require `Authorization: Bearer <jwt>` except `/api/agent/*` which
 | `PUT` | `/api/apps/:id` | Update compose YAML / health check / env vars |
 | `DELETE` | `/api/apps/:id` | Delete application (admin) |
 | `POST` | `/api/apps/:id/deploy` | Deploy to a server |
+| `GET` | `/api/apps/:id/webhook` | Get deploy webhook token |
+| `POST` | `/api/webhooks/deploy/:token` | Trigger deploy via webhook (no auth) |
 | `POST` | `/api/apps/:id/rollback` | Re-deploy a previous successful deployment |
 | `GET` | `/api/deployments` | List all deployments |
 | `GET` | `/api/deployments/:id` | Deployment detail + log |

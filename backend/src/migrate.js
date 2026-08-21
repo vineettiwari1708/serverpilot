@@ -234,6 +234,13 @@ const MIGRATIONS = [
     `,
   },
   {
+    name: '016_add_app_webhook_token',
+    sql: `
+      ALTER TABLE applications ADD COLUMN IF NOT EXISTS webhook_token TEXT UNIQUE DEFAULT gen_random_uuid()::text;
+      UPDATE applications SET webhook_token = gen_random_uuid()::text WHERE webhook_token IS NULL;
+    `,
+  },
+  {
     name: '003_create_heartbeats',
     sql: `
       CREATE TABLE IF NOT EXISTS heartbeats (

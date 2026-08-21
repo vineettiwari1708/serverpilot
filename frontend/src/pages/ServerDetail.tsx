@@ -81,10 +81,11 @@ export default function ServerDetail() {
   const { user }  = useAuth()
   const isAdmin   = user?.role === 'admin'
 
-  usePageTitle(data?.server?.name ?? 'Server')
   const [data,      setData]      = useState<DetailResponse | null>(null)
   const [loading,   setLoading]   = useState(true)
   const [error,     setError]     = useState('')
+
+  usePageTitle(data?.server?.name ?? 'Server')
   const [pending,   setPending]   = useState<Record<string, boolean>>({})
   const [tab,       setTab]       = useState<TabKey>('containers')
   const [metrics,   setMetrics]   = useState<MetricPoint[]>([])
@@ -340,7 +341,7 @@ export default function ServerDetail() {
                     <Tooltip
                       contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 8, fontSize: 12 }}
                       labelStyle={{ color: '#94a3b8' }}
-                      formatter={(v: number) => `${v}%`}
+                      formatter={(v) => `${v}%`}
                     />
                     <Legend wrapperStyle={{ fontSize: 11, color: '#64748b' }} />
                     <Line type="monotone" dataKey="cpu_pct"  name="CPU"  stroke="#3b82f6" strokeWidth={2} dot={false} connectNulls />

@@ -21,6 +21,7 @@ const alertsRouter         = require('./routes/alerts')
 const usersRouter          = require('./routes/users')
 const auditRouter          = require('./routes/audit')
 const notificationsRouter  = require('./routes/notifications')
+const webhooksRouter       = require('./routes/webhooks')
 const startScheduler       = require('./scheduler')
 
 const startTime = Date.now()
@@ -76,6 +77,7 @@ async function main() {
   app.use(usersRouter(pool))
   app.use(auditRouter(pool))
   app.use(notificationsRouter(pool))
+  app.use(webhooksRouter(pool))
 
   startScheduler(pool, logger)
 

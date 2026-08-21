@@ -103,10 +103,13 @@ module.exports = function appsRouter(pool) {
     }
   })
 
-  // POST /api/apps/:id/deploy  { server_id }
+  // POST /api/apps/:id/deploy  { server_ids: string[] }  (also accepts legacy server_id: string)
   router.post('/api/apps/:id/deploy', requireAuth, async (req, res) => {
-    const { server_id } = req.body || {}
-    if (!server_id) return res.status(400).json({ error: 'server_id is required' })
+    const { server_id, server_ids } = req.body || {}
+    const ids = server_ids && Array.isArray(server_ids) && server_ids.length
+      ? server_ids
+      : server_id ? [server_id] : []
+    if (!ids.length) return res.status(400).json({ error: 'server_ids is required' })
 
     try {
       const { rows: app } = await pool.query(
@@ -114,20 +117,42 @@ module.exports = function appsRouter(pool) {
       )
       if (!app.length) return res.status(404).json({ error: 'app not found' })
 
-      const { rows: srv } = await pool.query(
-        'SELECT id, name FROM servers WHERE id = $1', [server_id]
+      const { rows: srvs } = await pool.query(
+        'SELECT id, name FROM servers WHERE id = ANY($1)', [ids]
       )
-      if (!srv.length) return res.status(404).json({ error: 'server not found' })
+      if (!srvs.length) return res.status(404).json({ error: 'no matching servers found' })
 
-      const { rows: dep } = await pool.query(`
-        INSERT INTO deployments (app_id, app_name, server_id, server_name, compose_yaml, env_vars, deployed_by)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        RETURNING id, status, started_at
-      `, [app[0].id, app[0].name, srv[0].id, srv[0].name,
-          app[0].compose_yaml, JSON.stringify(app[0].env_vars || {}), req.user.email])
+      const deployments = []
+      for (const srv of srvs) {
+        const { rows: dep } = await pool.query(`
+          INSERT INTO deployments (app_id, app_name, server_id, server_name, compose_yaml, env_vars, deployed_by)
+          VALUES ($1, $2, $3, $4, $5, $6, $7)
+          RETURNING id, status, started_at
+        `, [app[0].id, app[0].name, srv.id, srv.name,
+            app[0].compose_yaml, JSON.stringify(app[0].env_vars || {}), req.user.email])
+        logAudit(pool, req, 'app.deploy', 'deployment', dep[0].id, { app: app[0].name, server: srv.name })
+        deployments.push(dep[0])
+      }
 
-      logAudit(pool, req, 'app.deploy', 'deployment', dep[0].id, { app: app[0].name, server: srv[0].name })
-      res.status(201).json({ deployment: dep[0] })
+      // Single server: keep old response shape; multi: return array
+      if (deployments.length === 1) {
+        res.status(201).json({ deployment: deployments[0] })
+      } else {
+        res.status(201).json({ deployments })
+      }
+    } catch (err) {
+      res.status(500).json({ error: 'internal server error' })
+    }
+  })
+
+  // GET /api/apps/:id/webhook  — return webhook token (any authenticated user)
+  router.get('/api/apps/:id/webhook', requireAuth, async (req, res) => {
+    try {
+      const { rows } = await pool.query(
+        'SELECT webhook_token FROM applications WHERE id = $1', [req.params.id]
+      )
+      if (!rows.length) return res.status(404).json({ error: 'app not found' })
+      res.json({ token: rows[0].webhook_token })
     } catch (err) {
       res.status(500).json({ error: 'internal server error' })
     }

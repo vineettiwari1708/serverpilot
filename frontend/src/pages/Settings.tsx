@@ -350,7 +350,7 @@ function NotificationsTab() {
 
             <div className="flex items-center gap-4 ml-5 flex-wrap">
               {[['on_warning','Warning'], ['on_critical','Critical'], ['on_offline','Offline']].map(([k, lbl]) => (
-                <span key={k} className={`text-[10px] ${(ch as Record<string, unknown>)[k] ? 'text-slate-400' : 'text-slate-700 line-through'}`}>
+                <span key={k} className={`text-[10px] ${(ch as unknown as Record<string, unknown>)[k] ? 'text-slate-400' : 'text-slate-700 line-through'}`}>
                   {lbl}
                 </span>
               ))}

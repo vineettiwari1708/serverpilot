@@ -27,8 +27,9 @@ interface Deployment {
 }
 
 interface Server {
-  id:   string
-  name: string
+  id:     string
+  name:   string
+  status: string
 }
 
 const STATUS_COLOR: Record<string, string> = {
@@ -45,12 +46,13 @@ export default function AppDetail() {
   const { user } = useAuth()
   const isAdmin  = user?.role === 'admin'
 
-  usePageTitle(app?.name ?? 'Application')
   const [app,         setApp]         = useState<App | null>(null)
   const [deployments, setDeployments] = useState<Deployment[]>([])
   const [servers,     setServers]     = useState<Server[]>([])
   const [loading,     setLoading]     = useState(true)
   const [error,       setError]       = useState('')
+
+  usePageTitle(app?.name ?? 'Application')
 
   // compose edit state
   const [editing,      setEditing]      = useState(false)
@@ -64,9 +66,13 @@ export default function AppDetail() {
   const [savingEnv, setSavingEnv] = useState(false)
 
   // deploy state
-  const [deploying,      setDeploying]      = useState(false)
-  const [deployServerId, setDeployServerId] = useState('')
-  const [deployError,    setDeployError]    = useState('')
+  const [deploying,       setDeploying]       = useState(false)
+  const [deployServerIds, setDeployServerIds] = useState<string[]>([])
+  const [deployError,     setDeployError]     = useState('')
+
+  // webhook state
+  const [webhookToken, setWebhookToken] = useState<string | null>(null)
+  const [webhookCopied, setWebhookCopied] = useState(false)
 
   // delete state
   const [deleting, setDeleting] = useState(false)
@@ -86,6 +92,8 @@ export default function AppDetail() {
       setEditYaml(a.compose_yaml)
       setEditHealth(a.health_check_url)
       setEnvRows(Object.entries(a.env_vars || {}).map(([k, v]) => ({ key: k, value: String(v), revealed: false })))
+      const wh = await api.get(`/api/apps/${id}/webhook`)
+      if (wh.ok) { const { token } = await wh.json(); setWebhookToken(token) }
     } catch {
       setError('Failed to load')
     } finally {
@@ -113,13 +121,14 @@ export default function AppDetail() {
   }
 
   const handleDeploy = async () => {
-    if (!deployServerId) return
+    if (!deployServerIds.length) return
     setDeploying(true)
     setDeployError('')
     try {
-      const r = await api.post(`/api/apps/${id}/deploy`, { server_id: deployServerId })
+      const r = await api.post(`/api/apps/${id}/deploy`, { server_ids: deployServerIds })
       const data = await r.json()
       if (!r.ok) { setDeployError(data.error || 'Deploy failed'); setDeploying(false); return }
+      setDeployServerIds([])
       load()
     } catch {
       setDeployError('Network error')
@@ -127,6 +136,11 @@ export default function AppDetail() {
       setDeploying(false)
     }
   }
+
+  const toggleServer = (sid: string) =>
+    setDeployServerIds(prev =>
+      prev.includes(sid) ? prev.filter(x => x !== sid) : [...prev, sid]
+    )
 
   const handleRollback = async (deploymentId: string) => {
     if (!confirm('Roll back to this deployment?')) return
@@ -181,30 +195,100 @@ export default function AppDetail() {
 
       {/* Deploy panel */}
       <div className="sp-card space-y-3">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500">Deploy</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500">Deploy</h2>
+          {deployServerIds.length > 1 && (
+            <span className="text-[10px] text-blue-400 font-semibold">
+              {deployServerIds.length} servers selected — parallel deploy
+            </span>
+          )}
+        </div>
         {deployError && (
           <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded px-3 py-2">{deployError}</p>
         )}
-        <div className="flex items-center gap-3">
-          <select
-            value={deployServerId}
-            onChange={e => setDeployServerId(e.target.value)}
-            className="flex-1 bg-sp-hover border border-sp-border rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-blue-500"
-          >
-            <option value="">Select server…</option>
-            {servers.map(s => (
-              <option key={s.id} value={s.id}>{s.name}</option>
-            ))}
-          </select>
+        {servers.length === 0 ? (
+          <p className="text-[11px] text-slate-600">No servers registered. <Link to="/servers" className="text-sp-accent hover:underline">Add a server</Link> first.</p>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {servers.map(s => {
+              const checked = deployServerIds.includes(s.id)
+              return (
+                <label
+                  key={s.id}
+                  className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg border cursor-pointer transition-colors ${
+                    checked
+                      ? 'border-blue-500/50 bg-blue-500/10 text-slate-200'
+                      : 'border-sp-border hover:border-slate-600 text-slate-400'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleServer(s.id)}
+                    className="accent-blue-500 shrink-0"
+                  />
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium truncate">{s.name}</p>
+                    <p className={`text-[10px] font-mono ${
+                      s.status === 'online' ? 'text-green-500' : 'text-slate-600'
+                    }`}>{s.status}</p>
+                  </div>
+                </label>
+              )
+            })}
+          </div>
+        )}
+        <div className="flex items-center justify-between pt-1">
+          {deployServerIds.length > 0 && (
+            <button onClick={() => setDeployServerIds([])} className="text-[10px] text-slate-600 hover:text-slate-400">
+              Clear selection
+            </button>
+          )}
           <button
             onClick={handleDeploy}
-            disabled={!deployServerId || deploying}
-            className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium transition-colors whitespace-nowrap"
+            disabled={!deployServerIds.length || deploying}
+            className="ml-auto px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-semibold transition-colors whitespace-nowrap"
           >
-            {deploying ? 'Deploying…' : 'Deploy Now'}
+            {deploying
+              ? 'Deploying…'
+              : deployServerIds.length > 1
+                ? `Deploy to ${deployServerIds.length} servers`
+                : 'Deploy Now'}
           </button>
         </div>
       </div>
+
+      {/* Webhook deploy URL */}
+      {webhookToken && (
+        <div className="sp-card space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500">Deploy Webhook</h2>
+            <span className="text-[10px] text-slate-600">Trigger a deploy from CI/CD</span>
+          </div>
+          <p className="text-[11px] text-slate-500">
+            Send a <code className="bg-sp-hover px-1 rounded text-slate-400">POST</code> request to this URL from your CI pipeline. No authentication required.
+            Deploys to the same server as the last successful deployment, or pass <code className="bg-sp-hover px-1 rounded text-slate-400">{"{ \"server_id\": \"...\" }"}</code> in the body.
+          </p>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 min-w-0 bg-sp-hover border border-sp-border rounded-lg px-3 py-2 text-xs text-slate-300 font-mono truncate">
+              {`${window.location.origin}/api/webhooks/deploy/${webhookToken}`}
+            </code>
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(`${window.location.origin}/api/webhooks/deploy/${webhookToken}`)
+                setWebhookCopied(true)
+                setTimeout(() => setWebhookCopied(false), 2000)
+              }}
+              className="shrink-0 px-3 py-2 rounded-lg bg-sp-hover border border-sp-border text-xs text-slate-400 hover:text-slate-200 transition-colors font-medium"
+            >
+              {webhookCopied ? 'Copied!' : 'Copy'}
+            </button>
+          </div>
+          <p className="text-[10px] text-slate-600 font-mono">
+            curl -X POST {`${window.location.origin}/api/webhooks/deploy/${webhookToken}`}
+          </p>
+        </div>
+      )}
 
       {/* Compose YAML */}
       <div className="sp-card space-y-3">

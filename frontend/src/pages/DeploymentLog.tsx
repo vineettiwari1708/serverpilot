@@ -28,10 +28,11 @@ const ACTIVE = new Set(['pending', 'running', 'health_check'])
 
 export default function DeploymentLog() {
   const { id } = useParams<{ id: string }>()
-  usePageTitle(dep ? `Deploy: ${dep.app_name}` : 'Deployment')
   const [dep,     setDep]     = useState<Deployment | null>(null)
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState('')
+
+  usePageTitle(dep ? `Deploy: ${dep.app_name}` : 'Deployment')
   const logRef = useRef<HTMLPreElement>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
