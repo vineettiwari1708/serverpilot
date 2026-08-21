@@ -17,6 +17,7 @@ const serversRouter    = require('./routes/servers')
 const containersRouter = require('./routes/containers')
 const appsRouter       = require('./routes/apps')
 const backupsRouter    = require('./routes/backups')
+const alertsRouter     = require('./routes/alerts')
 const startScheduler   = require('./scheduler')
 
 const startTime = Date.now()
@@ -68,6 +69,7 @@ async function main() {
   app.use(containersRouter(pool))
   app.use(appsRouter(pool))
   app.use(backupsRouter(pool))
+  app.use(alertsRouter(pool))
 
   startScheduler(pool, logger)
 

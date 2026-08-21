@@ -1,6 +1,6 @@
 # Phase 6 — Alerts + Monitoring
 
-**Status:** NEXT  
+**Status:** DONE  
 **Goal:** Define thresholds for CPU, RAM, disk, and service health. Fire alerts when thresholds are crossed. Show alert history and mark alerts as resolved.
 
 ---

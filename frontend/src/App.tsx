@@ -10,6 +10,8 @@ import AppDetail from './pages/AppDetail'
 import DeploymentLog from './pages/DeploymentLog'
 import Backups from './pages/Backups'
 import BackupDetail from './pages/BackupDetail'
+import Alerts from './pages/Alerts'
+import Monitoring from './pages/Monitoring'
 import Placeholder from './pages/Placeholder'
 
 export default function App() {
@@ -30,9 +32,9 @@ export default function App() {
         <Route path="deployments/:id"   element={<DeploymentLog />} />
         <Route path="backups"             element={<Backups />} />
         <Route path="backups/:id"         element={<BackupDetail />} />
-        <Route path="monitoring"        element={<Placeholder title="Monitoring" desc="CPU, RAM, disk metrics. Coming in Phase 6." />} />
-        <Route path="logs"              element={<Placeholder title="Logs"       desc="Container and system logs. Coming in Phase 6." />} />
-        <Route path="alerts"            element={<Placeholder title="Alerts"     desc="Threshold alerts. Coming in Phase 6." />} />
+        <Route path="monitoring"          element={<Monitoring />} />
+        <Route path="alerts"            element={<Alerts />} />
+        <Route path="logs"              element={<Placeholder title="Logs" desc="Container and system logs. Coming in Phase 7." />} />
         <Route path="users"             element={<Placeholder title="Users"      desc="User management." />} />
         <Route path="settings"          element={<Placeholder title="Settings"   desc="System configuration." />} />
         <Route path="audit-logs"        element={<Placeholder title="Audit Logs" desc="Action history. Coming in Phase 6." />} />

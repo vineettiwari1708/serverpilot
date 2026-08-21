@@ -1,6 +1,6 @@
 # Phase 7 — Polish + Charts
 
-**Status:** UPCOMING  
+**Status:** NEXT  
 **Goal:** Upgrade the dashboard with real-time charts, improve responsiveness, and make the UI production-ready.
 
 ---

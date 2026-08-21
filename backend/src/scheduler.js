@@ -1,8 +1,14 @@
 'use strict'
 
+const { checkHeartbeatAlerts } = require('./alerts')
+
 module.exports = function startScheduler(pool, logger) {
   setInterval(async () => {
     try {
+      // Check for servers with stale heartbeats
+      await checkHeartbeatAlerts(pool)
+
+      // Fire due backup schedules
       const { rows } = await pool.query(`
         SELECT * FROM backup_schedules
         WHERE enabled = true AND next_run <= NOW()

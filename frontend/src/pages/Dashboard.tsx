@@ -42,7 +42,7 @@ const phases = [
   { id: '3',  label: 'Docker Container Management',    done: true  },
   { id: '4',  label: 'Application Deployment',         done: true  },
   { id: '5',  label: 'Backup + Restore',               done: true  },
-  { id: '6',  label: 'Alerts + Monitoring',            done: false },
+  { id: '6',  label: 'Alerts + Monitoring',            done: true  },
   { id: '7',  label: 'Polish + Charts',                done: false },
 ]
 

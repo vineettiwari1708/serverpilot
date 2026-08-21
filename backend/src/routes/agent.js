@@ -3,6 +3,7 @@
 const express           = require('express')
 const config            = require('../config')
 const { agentAuth }     = require('../auth/agentMiddleware')
+const { checkMetricAlerts } = require('../alerts')
 
 module.exports = function agentRouter(pool) {
   const router = express.Router()
@@ -77,6 +78,10 @@ module.exports = function agentRouter(pool) {
         // Empty array means no containers — clear them all
         await pool.query('DELETE FROM containers WHERE server_id = $1', [serverId])
       }
+
+      // Check metric alerts asynchronously (don't block the heartbeat response)
+      checkMetricAlerts(pool, serverId, req.server.name,
+        { cpu_pct, ram_pct, disk_pct }).catch(() => {})
 
       res.status(204).end()
     } catch (err) {

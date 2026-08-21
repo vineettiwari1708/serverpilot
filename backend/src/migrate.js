@@ -102,6 +102,42 @@ const MIGRATIONS = [
     `,
   },
   {
+    name: '010_create_alerts',
+    sql: `
+      CREATE TABLE IF NOT EXISTS alerts (
+        id              TEXT        PRIMARY KEY DEFAULT gen_random_uuid()::text,
+        server_id       TEXT        NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+        server_name     TEXT        NOT NULL,
+        metric          TEXT        NOT NULL,
+        value           FLOAT       NOT NULL,
+        threshold       FLOAT       NOT NULL,
+        severity        TEXT        NOT NULL CHECK (severity IN ('warning','critical')),
+        status          TEXT        NOT NULL DEFAULT 'open'
+                                    CHECK (status IN ('open','acknowledged','resolved')),
+        message         TEXT        NOT NULL,
+        created_at      TIMESTAMPTZ DEFAULT NOW(),
+        acknowledged_at TIMESTAMPTZ,
+        resolved_at     TIMESTAMPTZ
+      );
+      CREATE INDEX IF NOT EXISTS idx_alerts_server_id ON alerts(server_id);
+      CREATE INDEX IF NOT EXISTS idx_alerts_open
+        ON alerts(server_id, metric) WHERE status != 'resolved';
+    `,
+  },
+  {
+    name: '011_create_server_thresholds',
+    sql: `
+      CREATE TABLE IF NOT EXISTS server_thresholds (
+        id        TEXT  PRIMARY KEY DEFAULT gen_random_uuid()::text,
+        server_id TEXT  NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+        metric    TEXT  NOT NULL,
+        warning   FLOAT NOT NULL,
+        critical  FLOAT NOT NULL,
+        UNIQUE (server_id, metric)
+      );
+    `,
+  },
+  {
     name: '008_create_backup_jobs',
     sql: `
       CREATE TABLE IF NOT EXISTS backup_jobs (

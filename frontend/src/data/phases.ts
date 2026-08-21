@@ -276,7 +276,7 @@ http://localhost:5173` },
   {
     id: '6',
     title: 'Alerts + Monitoring',
-    status: 'next',
+    status: 'done',
     summary: 'Configurable thresholds for CPU, RAM, disk, and service health. Alerts fire when thresholds are crossed, are acknowledged by users, and auto-resolve when metrics recover.',
     sections: [
       { type: 'heading', content: 'Default Thresholds' },
@@ -297,7 +297,7 @@ http://localhost:5173` },
   {
     id: '7',
     title: 'Polish + Charts',
-    status: 'upcoming',
+    status: 'next',
     summary: 'Real-time Recharts charts on the dashboard, responsive layout, server detail tabs, WebSocket log streaming, and production-ready UI across all pages.',
     sections: [
       { type: 'heading', content: 'Dashboard Charts' },
