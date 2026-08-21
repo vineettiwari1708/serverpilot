@@ -102,6 +102,55 @@ const MIGRATIONS = [
     `,
   },
   {
+    name: '008_create_backup_jobs',
+    sql: `
+      CREATE TABLE IF NOT EXISTS backup_jobs (
+        id           TEXT        PRIMARY KEY DEFAULT gen_random_uuid()::text,
+        server_id    TEXT        NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+        server_name  TEXT        NOT NULL,
+        type         TEXT        NOT NULL CHECK (type IN ('postgres','files')),
+        direction    TEXT        NOT NULL DEFAULT 'backup'
+                                 CHECK (direction IN ('backup','restore')),
+        target       TEXT        NOT NULL,
+        backup_dir   TEXT        NOT NULL DEFAULT '/opt/serverpilot/backups',
+        source_file  TEXT        DEFAULT '',
+        status       TEXT        NOT NULL DEFAULT 'pending'
+                                 CHECK (status IN ('pending','running','success','failed')),
+        file_path    TEXT        DEFAULT '',
+        size_bytes   BIGINT      DEFAULT 0,
+        checksum     TEXT        DEFAULT '',
+        log          TEXT        DEFAULT '',
+        triggered_by TEXT,
+        created_at   TIMESTAMPTZ DEFAULT NOW(),
+        finished_at  TIMESTAMPTZ
+      );
+      CREATE INDEX IF NOT EXISTS idx_backup_jobs_server_id ON backup_jobs(server_id);
+      CREATE INDEX IF NOT EXISTS idx_backup_jobs_pending
+        ON backup_jobs(server_id, status) WHERE status = 'pending';
+    `,
+  },
+  {
+    name: '009_create_backup_schedules',
+    sql: `
+      CREATE TABLE IF NOT EXISTS backup_schedules (
+        id           TEXT        PRIMARY KEY DEFAULT gen_random_uuid()::text,
+        server_id    TEXT        NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+        server_name  TEXT        NOT NULL,
+        type         TEXT        NOT NULL CHECK (type IN ('postgres','files')),
+        target       TEXT        NOT NULL,
+        backup_dir   TEXT        NOT NULL DEFAULT '/opt/serverpilot/backups',
+        label        TEXT        DEFAULT '',
+        interval_min INT         NOT NULL DEFAULT 1440,
+        enabled      BOOLEAN     NOT NULL DEFAULT true,
+        last_run     TIMESTAMPTZ,
+        next_run     TIMESTAMPTZ DEFAULT NOW(),
+        created_at   TIMESTAMPTZ DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_backup_schedules_due
+        ON backup_schedules(next_run) WHERE enabled = true;
+    `,
+  },
+  {
     name: '003_create_heartbeats',
     sql: `
       CREATE TABLE IF NOT EXISTS heartbeats (

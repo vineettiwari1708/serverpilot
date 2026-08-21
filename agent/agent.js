@@ -169,7 +169,8 @@ async function reportResult(cmdId, status, result) {
 
 // ── Deployment execution ──────────────────────────────────────────────────────
 
-const DEPLOY_DIR = process.env.DEPLOY_DIR || '/opt/serverpilot/apps'
+const DEPLOY_DIR  = process.env.DEPLOY_DIR  || '/opt/serverpilot/apps'
+const BACKUP_DIR  = process.env.BACKUP_DIR  || '/opt/serverpilot/backups'
 
 async function pollDeployments() {
   try {
@@ -269,6 +270,124 @@ function waitHealthy(url, timeoutMs) {
   })
 }
 
+// ── Backup execution ──────────────────────────────────────────────────────────
+
+async function pollBackups() {
+  try {
+    const { status, body } = await request('GET', '/api/agent/backups', null, AGENT_TOKEN)
+    if (status !== 200) return
+    const { jobs } = JSON.parse(body)
+    for (const job of jobs) {
+      executeBackupJob(job)  // fire-and-forget
+    }
+  } catch (err) {
+    console.error(`[${new Date().toISOString()}] backup poll error: ${err.message}`)
+  }
+}
+
+async function backupLog(jobId, msg) {
+  console.log(`[backup:${jobId.slice(0, 8)}] ${msg}`)
+  try { await request('POST', `/api/agent/backups/${jobId}/log`, { lines: msg }, AGENT_TOKEN) }
+  catch (_) {}
+}
+
+async function backupStatus(jobId, status, extra = {}) {
+  try { await request('POST', `/api/agent/backups/${jobId}/status`, { status, ...extra }, AGENT_TOKEN) }
+  catch (_) {}
+}
+
+async function executeBackupJob(job) {
+  if (job.direction === 'restore') {
+    await executeRestore(job)
+  } else {
+    await executeBackup(job)
+  }
+}
+
+async function executeBackup(job) {
+  const dir = job.backup_dir || BACKUP_DIR
+  fs.mkdirSync(dir, { recursive: true })
+
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+  const safeName = job.target.replace(/[^a-z0-9]/gi, '_').slice(0, 40)
+  const ext = job.type === 'postgres' ? '.dump' : '.tar.gz'
+  const filename = `${job.type}-${safeName}-${stamp}${ext}`
+  const filePath = path.join(dir, filename)
+
+  let cmd
+  if (job.type === 'postgres') {
+    cmd = `pg_dump -Fc "${job.target}" -f "${filePath}"`
+  } else {
+    cmd = `tar -czf "${filePath}" "${job.target}"`
+  }
+
+  await backupLog(job.id, `Starting ${job.type} backup of ${job.target}`)
+  await backupLog(job.id, `Output: ${filePath}`)
+
+  try {
+    await new Promise((resolve, reject) => {
+      exec(cmd, (err, stdout, stderr) => {
+        if (err) reject(new Error(stderr || err.message))
+        else resolve()
+      })
+    })
+
+    // Size
+    const size = fs.statSync(filePath).size
+    await backupLog(job.id, `Backup complete — ${(size / 1024).toFixed(1)} KB`)
+
+    // SHA256 checksum
+    const checksum = await new Promise((resolve, reject) => {
+      exec(`sha256sum "${filePath}"`, (err, stdout) => {
+        if (err) resolve('')
+        else resolve(stdout.trim().split(/\s+/)[0])
+      })
+    })
+    if (checksum) await backupLog(job.id, `SHA256: ${checksum}`)
+
+    await backupStatus(job.id, 'success', { file_path: filePath, size_bytes: size, checksum })
+  } catch (err) {
+    await backupLog(job.id, `Error: ${err.message}`)
+    await backupStatus(job.id, 'failed')
+  }
+}
+
+async function executeRestore(job) {
+  const src = job.source_file
+  if (!src) {
+    await backupLog(job.id, 'Error: source_file is empty')
+    return backupStatus(job.id, 'failed')
+  }
+  if (!fs.existsSync(src)) {
+    await backupLog(job.id, `Error: source file not found: ${src}`)
+    return backupStatus(job.id, 'failed')
+  }
+
+  let cmd
+  if (job.type === 'postgres') {
+    cmd = `pg_restore -d "${job.target}" "${src}"`
+  } else {
+    cmd = `tar -xzf "${src}" -C "${job.target}"`
+  }
+
+  await backupLog(job.id, `Starting ${job.type} restore to ${job.target}`)
+  await backupLog(job.id, `Source: ${src}`)
+
+  try {
+    await new Promise((resolve, reject) => {
+      exec(cmd, (err, stdout, stderr) => {
+        if (err) reject(new Error(stderr || err.message))
+        else resolve()
+      })
+    })
+    await backupLog(job.id, 'Restore complete')
+    await backupStatus(job.id, 'success')
+  } catch (err) {
+    await backupLog(job.id, `Error: ${err.message}`)
+    await backupStatus(job.id, 'failed')
+  }
+}
+
 // ── Main loop ─────────────────────────────────────────────────────────────────
 
 console.log(`[agent] starting — reporting to ${CONTROL_URL} every ${INTERVAL_MS / 1000}s`)
@@ -277,6 +396,7 @@ async function tick() {
   await sendHeartbeat()
   await pollCommands()
   await pollDeployments()
+  await pollBackups()
 }
 
 tick()

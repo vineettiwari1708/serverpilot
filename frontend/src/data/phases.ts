@@ -248,7 +248,7 @@ http://localhost:5173` },
   {
     id: '5',
     title: 'Backup + Restore',
-    status: 'next',
+    status: 'done',
     summary: 'Schedule and run backups of databases, configs, and Docker volumes to the dedicated Backup Server. Safe restore workflow with checksum verification and explicit confirmation before overwriting data.',
     sections: [
       { type: 'heading', content: 'What Gets Backed Up' },
@@ -276,7 +276,7 @@ http://localhost:5173` },
   {
     id: '6',
     title: 'Alerts + Monitoring',
-    status: 'upcoming',
+    status: 'next',
     summary: 'Configurable thresholds for CPU, RAM, disk, and service health. Alerts fire when thresholds are crossed, are acknowledged by users, and auto-resolve when metrics recover.',
     sections: [
       { type: 'heading', content: 'Default Thresholds' },

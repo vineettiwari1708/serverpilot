@@ -192,5 +192,67 @@ module.exports = function agentRouter(pool) {
     }
   })
 
+  // ── Backup Jobs ───────────────────────────────────────────────
+
+  // GET /api/agent/backups — agent polls for pending backup/restore jobs
+  router.get('/api/agent/backups', agentAuth(pool), async (req, res) => {
+    try {
+      const { rows } = await pool.query(
+        `SELECT id, type, direction, target, backup_dir, source_file
+         FROM backup_jobs
+         WHERE server_id = $1 AND status = 'pending'
+         ORDER BY created_at`,
+        [req.server.id]
+      )
+      if (rows.length > 0) {
+        const ids = rows.map(r => r.id)
+        await pool.query(
+          `UPDATE backup_jobs SET status = 'running' WHERE id = ANY($1)`, [ids]
+        )
+      }
+      res.json({ jobs: rows })
+    } catch (err) {
+      res.status(500).json({ error: 'internal server error' })
+    }
+  })
+
+  // POST /api/agent/backups/:id/log — agent appends log lines
+  router.post('/api/agent/backups/:id/log', agentAuth(pool), async (req, res) => {
+    const { lines } = req.body || {}
+    if (!lines) return res.status(400).json({ error: 'lines required' })
+    try {
+      await pool.query(
+        `UPDATE backup_jobs SET log = log || $1 WHERE id = $2 AND server_id = $3`,
+        [lines + '\n', req.params.id, req.server.id]
+      )
+      res.status(204).end()
+    } catch (err) {
+      res.status(500).json({ error: 'internal server error' })
+    }
+  })
+
+  // POST /api/agent/backups/:id/status — agent reports final result
+  router.post('/api/agent/backups/:id/status', agentAuth(pool), async (req, res) => {
+    const { status, file_path, size_bytes, checksum } = req.body || {}
+    if (!['success', 'failed'].includes(status)) {
+      return res.status(400).json({ error: 'status must be success or failed' })
+    }
+    try {
+      await pool.query(
+        `UPDATE backup_jobs
+         SET status = $1, file_path = COALESCE($2, file_path),
+             size_bytes = COALESCE($3, size_bytes),
+             checksum = COALESCE($4, checksum),
+             finished_at = NOW()
+         WHERE id = $5 AND server_id = $6`,
+        [status, file_path || null, size_bytes || null, checksum || null,
+         req.params.id, req.server.id]
+      )
+      res.status(204).end()
+    } catch (err) {
+      res.status(500).json({ error: 'internal server error' })
+    }
+  })
+
   return router
 }

@@ -1,6 +1,6 @@
 # Phase 5 — Backup + Restore
 
-**Status:** NEXT  
+**Status:** DONE  
 **Goal:** Schedule and run backups of databases, application configs, and Docker volumes. Store them on the dedicated Backup Server. Restore with a safe confirmation workflow.
 
 ---

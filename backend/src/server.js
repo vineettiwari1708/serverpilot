@@ -16,6 +16,8 @@ const agentRouter      = require('./routes/agent')
 const serversRouter    = require('./routes/servers')
 const containersRouter = require('./routes/containers')
 const appsRouter       = require('./routes/apps')
+const backupsRouter    = require('./routes/backups')
+const startScheduler   = require('./scheduler')
 
 const startTime = Date.now()
 
@@ -65,6 +67,9 @@ async function main() {
   app.use(serversRouter(pool))
   app.use(containersRouter(pool))
   app.use(appsRouter(pool))
+  app.use(backupsRouter(pool))
+
+  startScheduler(pool, logger)
 
   // 404 fallback
   app.use((req, res) => {
