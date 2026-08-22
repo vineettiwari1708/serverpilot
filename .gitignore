@@ -1,20 +1,6 @@
-# ── Environment (never commit secrets) ───────────────────────
 .env
-.env.local
-.env.*.local
-
-# ── Node (frontend + backend) ────────────────────────────────
 node_modules/
 dist/
-.vite/
-
-# ── Logs ─────────────────────────────────────────────────────
 *.log
-logs/
-
-# ── OS ───────────────────────────────────────────────────────
-.DS_Store
-Thumbs.db
-
-# ── Docker local overrides ───────────────────────────────────
-docker-compose.override.yml
+postgres_data/
+redis_data/

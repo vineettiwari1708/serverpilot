@@ -318,3 +318,13 @@ docker exec sp-postgres psql -U serverpilot -d serverpilot
 ```
 
 Schema auto-migrates on backend startup via `migrate.js`.
+
+---
+
+## Author
+
+**Vineet Tiwari**
+- GitHub: [@vineettiwari1708](https://github.com/vineettiwari1708)
+- Email: vineettiwari1708@gmail.com
+
+Built from scratch as a full-stack DevOps monitoring project — backend in Node.js/Express, frontend in React/TypeScript, deployed via Docker Compose.
