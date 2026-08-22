@@ -99,7 +99,7 @@ export default function Monitoring() {
   }
 
   return (
-    <div className="p-6 space-y-6 max-w-5xl">
+    <div className="p-4 md:p-6 space-y-6 max-w-5xl">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white">Monitoring</h1>
@@ -186,7 +186,7 @@ export default function Monitoring() {
                     {pts.length === 0 ? (
                       <p className="text-xs text-slate-600 text-center py-4">No metric history yet</p>
                     ) : (
-                      <div className="grid grid-cols-3 gap-6">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
                         {(['cpu_pct', 'ram_pct', 'disk_pct'] as const).map(m => {
                           const last = pts[pts.length - 1]?.[m] as number | null
                           return (
@@ -224,3 +224,4 @@ export default function Monitoring() {
     </div>
   )
 }
+

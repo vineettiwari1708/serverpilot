@@ -71,7 +71,7 @@ export default function AuditLog() {
   const page  = Math.floor(offset / LIMIT)
 
   return (
-    <div className="p-6 space-y-6 max-w-6xl">
+    <div className="p-4 md:p-6 space-y-6 max-w-6xl">
 
       <div>
         <h1 className="text-2xl font-bold text-white">Audit Log</h1>
@@ -200,3 +200,4 @@ function formatTime(iso: string) {
   const d = new Date(iso)
   return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
+

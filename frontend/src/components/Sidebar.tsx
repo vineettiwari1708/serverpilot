@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { api } from '../services/api'
 
-// ── SVG icon components (defined before nav array) ───────────────────────────
+// ── SVG icon components ───────────────────────────────────────────────────────
 
 const cls = "h-4 w-4 shrink-0"
 
@@ -20,6 +20,8 @@ function IcoGear()    { return <svg className={cls} fill="none" stroke="currentC
 function IcoAudit()   { return <svg className={cls} fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg> }
 function IcoBook()    { return <svg className={cls} fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg> }
 function IcoLogout()  { return <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={1.75} viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg> }
+function IcoChevronLeft()  { return <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg> }
+function IcoChevronRight() { return <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg> }
 
 // ── Nav definitions ───────────────────────────────────────────────────────────
 
@@ -41,19 +43,25 @@ const bottomNav = [
   { to: '/audit-logs', label: 'Audit Logs', Icon: IcoAudit },
 ]
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function readCollapsed() {
+  try { return localStorage.getItem('sp-sidebar-collapsed') === 'true' } catch { return false }
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
-const linkClass = ({ isActive }: { isActive: boolean }) =>
-  `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
-    isActive
-      ? 'bg-sp-accent/15 text-sp-accent font-medium'
-      : 'text-slate-400 hover:text-slate-100 hover:bg-sp-hover'
-  }`
+interface SidebarProps {
+  onSearch?: () => void
+  isOpen?:   boolean
+  onClose?:  () => void
+}
 
-export default function Sidebar({ onSearch }: { onSearch?: () => void }) {
+export default function Sidebar({ onSearch, isOpen = false, onClose }: SidebarProps) {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const [alertCount, setAlertCount] = useState(0)
+  const [collapsed,  setCollapsed]  = useState(readCollapsed)
 
   useEffect(() => {
     const fetchCount = () =>
@@ -66,89 +74,173 @@ export default function Sidebar({ onSearch }: { onSearch?: () => void }) {
     return () => clearInterval(t)
   }, [])
 
-  const handleLogout = () => {
-    logout()
-    navigate('/login', { replace: true })
+  const handleLogout = () => { logout(); navigate('/login', { replace: true }) }
+  const handleNavClick = () => { onClose?.() }
+
+  const toggleCollapse = () => {
+    const next = !collapsed
+    setCollapsed(next)
+    try { localStorage.setItem('sp-sidebar-collapsed', String(next)) } catch {}
   }
 
+  const linkClass = ({ isActive }: { isActive: boolean }) =>
+    `relative flex items-center gap-3 rounded-lg text-sm transition-colors group
+     ${collapsed ? 'justify-center px-0 py-2.5' : 'px-3 py-2'}
+     ${isActive
+       ? 'bg-sp-accent/15 text-sp-accent font-medium'
+       : 'text-slate-400 hover:text-slate-100 hover:bg-sp-hover'
+     }`
+
   return (
-    <aside className="flex flex-col w-56 shrink-0 bg-sp-surface border-r border-sp-border h-screen">
-
-      {/* Logo */}
-      <div className="flex items-center gap-3 px-5 py-5 border-b border-sp-border">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sp-accent">
-          <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4 text-white" stroke="currentColor" strokeWidth={2}>
-            <rect x="2" y="3" width="20" height="14" rx="2" />
-            <path d="M8 21h8M12 17v4" />
-          </svg>
-        </div>
-        <div>
-          <p className="text-sm font-bold text-white leading-none">ServerPilot</p>
-          <p className="text-[10px] text-slate-500 leading-none mt-0.5">Local v0.2</p>
-        </div>
-      </div>
-
-      {/* Search button */}
-      <div className="px-3 pt-3 pb-1">
-        <button
-          onClick={onSearch}
-          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg bg-sp-hover border border-sp-border text-slate-500 hover:text-slate-300 hover:border-slate-600 transition-colors text-xs"
-        >
-          <svg className="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-          </svg>
-          <span className="flex-1 text-left">Search…</span>
-          <kbd className="text-[10px] font-mono border border-sp-border rounded px-1 py-0.5 text-slate-700">⌘K</kbd>
-        </button>
-      </div>
-
-      {/* Main nav */}
-      <nav className="flex-1 overflow-y-auto py-2 px-2 space-y-0.5">
-        {mainNav.map(({ to, label, end, Icon }) => (
-          <NavLink key={to} to={to} end={end} className={linkClass}>
-            <Icon />
-            <span className="flex-1">{label}</span>
-            {label === 'Alerts' && alertCount > 0 && (
-              <span className="ml-auto text-[10px] font-bold bg-red-500 text-white rounded-full px-1.5 py-0.5 min-w-[18px] text-center">
-                {alertCount > 99 ? '99+' : alertCount}
-              </span>
-            )}
-          </NavLink>
-        ))}
-      </nav>
-
-      {/* Bottom nav */}
-      <div className="py-3 px-2 space-y-0.5 border-t border-sp-border">
-        {bottomNav.map(({ to, label, Icon }) => (
-          <NavLink key={to} to={to} className={linkClass}>
-            <Icon />
-            {label}
-          </NavLink>
-        ))}
-      </div>
-
-      {/* User section */}
-      {user && (
-        <div className="border-t border-sp-border px-3 py-3">
-          <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-sp-hover transition-colors group">
-            <div className="h-7 w-7 rounded-full bg-sp-accent/20 border border-sp-accent/30 flex items-center justify-center text-sp-accent font-bold text-xs shrink-0">
-              {user.name.charAt(0).toUpperCase()}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-slate-300 truncate leading-tight">{user.name}</p>
-              <p className="text-[10px] text-slate-600 truncate leading-tight capitalize">{user.role}</p>
-            </div>
-            <button
-              onClick={handleLogout}
-              title="Sign out"
-              className="text-slate-500 hover:text-red-400 transition-colors"
-            >
-              <IcoLogout />
-            </button>
-          </div>
-        </div>
+    <>
+      {/* Mobile backdrop */}
+      {isOpen && (
+        <div
+          className="fixed inset-0 z-20 bg-black/60 md:hidden"
+          onClick={onClose}
+        />
       )}
 
-    </aside>
+      <aside className={`
+        fixed md:static inset-y-0 left-0 z-30
+        flex flex-col shrink-0 bg-sp-surface border-r border-sp-border h-screen
+        transition-all duration-200 ease-in-out
+        ${collapsed ? 'w-14' : 'w-56'}
+        ${isOpen ? 'translate-x-0' : '-translate-x-full'}
+        md:translate-x-0
+      `}>
+
+        {/* Logo + collapse toggle */}
+        <div className={`flex items-center border-b border-sp-border ${collapsed ? 'flex-col gap-2 py-4 px-0' : 'gap-3 px-4 py-4'}`}>
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sp-accent shrink-0">
+            <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4 text-white" stroke="currentColor" strokeWidth={2}>
+              <rect x="2" y="3" width="20" height="14" rx="2" />
+              <path d="M8 21h8M12 17v4" />
+            </svg>
+          </div>
+          {!collapsed && (
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-white leading-none">ServerPilot</p>
+              <p className="text-[10px] text-slate-500 leading-none mt-0.5">Local v0.2</p>
+            </div>
+          )}
+          {/* Collapse toggle — desktop only */}
+          <button
+            onClick={toggleCollapse}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            className="hidden md:flex items-center justify-center h-6 w-6 rounded text-slate-500 hover:text-slate-200 hover:bg-sp-hover transition-colors shrink-0"
+          >
+            {collapsed ? <IcoChevronRight /> : <IcoChevronLeft />}
+          </button>
+          {/* Close button — mobile only */}
+          {!collapsed && (
+            <button onClick={onClose} className="md:hidden text-slate-500 hover:text-slate-300 transition-colors p-1">
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path d="M18 6 6 18M6 6l12 12"/>
+              </svg>
+            </button>
+          )}
+        </div>
+
+        {/* Search button */}
+        <div className={`pt-3 pb-1 ${collapsed ? 'px-2' : 'px-3'}`}>
+          {collapsed ? (
+            <button
+              onClick={onSearch}
+              title="Search (⌘K)"
+              className="w-full flex items-center justify-center py-2 rounded-lg bg-sp-hover border border-sp-border text-slate-500 hover:text-slate-300 hover:border-slate-600 transition-colors"
+            >
+              <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+              </svg>
+            </button>
+          ) : (
+            <button
+              onClick={onSearch}
+              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg bg-sp-hover border border-sp-border text-slate-500 hover:text-slate-300 hover:border-slate-600 transition-colors text-xs"
+            >
+              <svg className="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+              </svg>
+              <span className="flex-1 text-left">Search…</span>
+              <kbd className="text-[10px] font-mono border border-sp-border rounded px-1 py-0.5 text-slate-700">⌘K</kbd>
+            </button>
+          )}
+        </div>
+
+        {/* Main nav */}
+        <nav className={`flex-1 overflow-y-auto py-2 space-y-0.5 ${collapsed ? 'px-1.5' : 'px-2'}`}>
+          {mainNav.map(({ to, label, end, Icon }) => (
+            <NavLink key={to} to={to} end={end} className={linkClass} onClick={handleNavClick} title={collapsed ? label : undefined}>
+              <Icon />
+              {!collapsed && <span className="flex-1">{label}</span>}
+              {label === 'Alerts' && alertCount > 0 && (
+                collapsed ? (
+                  <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-red-500" />
+                ) : (
+                  <span className="ml-auto text-[10px] font-bold bg-red-500 text-white rounded-full px-1.5 py-0.5 min-w-[18px] text-center">
+                    {alertCount > 99 ? '99+' : alertCount}
+                  </span>
+                )
+              )}
+              {/* Tooltip on collapsed */}
+              {collapsed && (
+                <span className="pointer-events-none absolute left-full ml-2 px-2 py-1 rounded bg-slate-800 border border-sp-border text-xs text-slate-200 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-50">
+                  {label}
+                </span>
+              )}
+            </NavLink>
+          ))}
+        </nav>
+
+        {/* Bottom nav */}
+        <div className={`py-3 space-y-0.5 border-t border-sp-border ${collapsed ? 'px-1.5' : 'px-2'}`}>
+          {bottomNav.map(({ to, label, Icon }) => (
+            <NavLink key={to} to={to} className={linkClass} onClick={handleNavClick} title={collapsed ? label : undefined}>
+              <Icon />
+              {!collapsed && label}
+              {collapsed && (
+                <span className="pointer-events-none absolute left-full ml-2 px-2 py-1 rounded bg-slate-800 border border-sp-border text-xs text-slate-200 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-50">
+                  {label}
+                </span>
+              )}
+            </NavLink>
+          ))}
+        </div>
+
+        {/* User section */}
+        {user && (
+          <div className="border-t border-sp-border px-2 py-3">
+            {collapsed ? (
+              <div className="flex flex-col items-center gap-2">
+                <div
+                  className="h-7 w-7 rounded-full bg-sp-accent/20 border border-sp-accent/30 flex items-center justify-center text-sp-accent font-bold text-xs shrink-0 cursor-default"
+                  title={user.name}
+                >
+                  {user.name.charAt(0).toUpperCase()}
+                </div>
+                <button onClick={handleLogout} title="Sign out" className="text-slate-500 hover:text-red-400 transition-colors">
+                  <IcoLogout />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-sp-hover transition-colors">
+                <div className="h-7 w-7 rounded-full bg-sp-accent/20 border border-sp-accent/30 flex items-center justify-center text-sp-accent font-bold text-xs shrink-0">
+                  {user.name.charAt(0).toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-slate-300 truncate leading-tight">{user.name}</p>
+                  <p className="text-[10px] text-slate-600 truncate leading-tight capitalize">{user.role}</p>
+                </div>
+                <button onClick={handleLogout} title="Sign out" className="text-slate-500 hover:text-red-400 transition-colors">
+                  <IcoLogout />
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+      </aside>
+    </>
   )
 }

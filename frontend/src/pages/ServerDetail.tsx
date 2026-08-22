@@ -97,6 +97,13 @@ export default function ServerDetail() {
   const [tags,      setTags]      = useState<string[]>([])
   const [savingTag, setSavingTag] = useState(false)
 
+  // OTP delete modal
+  const [otpModal,   setOtpModal]   = useState(false)
+  const [otpStep,    setOtpStep]    = useState<'send' | 'verify'>('send')
+  const [otpInput,   setOtpInput]   = useState('')
+  const [otpSending, setOtpSending] = useState(false)
+  const [otpError,   setOtpError]   = useState('')
+
   const fetchData = useCallback(async () => {
     try {
       const res = await api.get(`/api/servers/${id}`)
@@ -140,14 +147,34 @@ export default function ServerDetail() {
     if (r.ok) { const d = await r.json(); setToken(d.agent_token) }
   }
 
-  const deleteServer = async () => {
-    if (!data) return
-    if (!confirm(`Delete "${data.server.name}"?\n\nThis removes all heartbeat data, containers, deployments, backups and alerts. This cannot be undone.`)) return
-    setDeleting(true)
+  const openDeleteModal = () => {
+    setOtpModal(true)
+    setOtpStep('send')
+    setOtpInput('')
+    setOtpError('')
+  }
+
+  const requestOtp = async () => {
+    setOtpSending(true)
+    setOtpError('')
     try {
-      const r = await api.delete(`/api/servers/${id}`)
-      if (r.ok) navigate('/servers', { replace: true })
-    } finally { setDeleting(false) }
+      const r = await api.post(`/api/servers/${id}/request-otp`, {})
+      if (r.ok) { setOtpStep('verify') }
+      else { const d = await r.json(); setOtpError(d.error || 'Failed to send OTP') }
+    } catch { setOtpError('Network error') }
+    finally { setOtpSending(false) }
+  }
+
+  const confirmDelete = async () => {
+    if (!otpInput.trim()) { setOtpError('Enter the OTP'); return }
+    setDeleting(true)
+    setOtpError('')
+    try {
+      const r = await api.delete(`/api/servers/${id}`, { otp: otpInput.trim() })
+      if (r.ok) { navigate('/servers', { replace: true }) }
+      else { const d = await r.json(); setOtpError(d.error || 'Delete failed') }
+    } catch { setOtpError('Network error') }
+    finally { setDeleting(false) }
   }
 
   useEffect(() => {
@@ -168,10 +195,10 @@ export default function ServerDetail() {
   }
 
   if (loading) return (
-    <div className="p-6 text-slate-600 text-sm animate-pulse">Loading…</div>
+    <div className="p-4 md:p-6 text-slate-600 text-sm animate-pulse">Loading…</div>
   )
   if (error || !data) return (
-    <div className="p-6 text-red-400 text-sm">{error || 'Unknown error'}</div>
+    <div className="p-4 md:p-6 text-red-400 text-sm">{error || 'Unknown error'}</div>
   )
 
   const { server, containers, commands } = data
@@ -183,7 +210,7 @@ export default function ServerDetail() {
   ]
 
   return (
-    <div className="p-6 space-y-6 max-w-6xl">
+    <div className="p-4 md:p-6 space-y-6 max-w-6xl">
 
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-sm">
@@ -450,14 +477,81 @@ export default function ServerDetail() {
                 </p>
               </div>
               <button
-                onClick={deleteServer}
-                disabled={deleting}
-                className="shrink-0 px-4 py-1.5 rounded-lg border border-red-500/40 text-red-400 hover:bg-red-500/10 text-xs font-semibold transition-colors disabled:opacity-40"
+                onClick={openDeleteModal}
+                className="shrink-0 px-4 py-1.5 rounded-lg border border-red-500/40 text-red-400 hover:bg-red-500/10 text-xs font-semibold transition-colors"
               >
-                {deleting ? 'Deleting…' : 'Delete Server'}
+                Delete Server
               </button>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* OTP Delete Modal */}
+      {otpModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+          <div className="bg-sp-surface border border-sp-border rounded-2xl p-6 w-full max-w-sm space-y-4 shadow-2xl">
+            <h3 className="text-base font-bold text-white">Delete Server</h3>
+            <p className="text-[13px] text-slate-400">
+              This will permanently delete <span className="text-white font-semibold">{data?.server.name}</span> and all its data.
+            </p>
+
+            {otpStep === 'send' && (
+              <>
+                <p className="text-[12px] text-slate-500">
+                  A one-time password will be sent to your Telegram. Enter it to confirm deletion.
+                </p>
+                {otpError && <p className="text-xs text-red-400">{otpError}</p>}
+                <div className="flex gap-2 pt-1">
+                  <button
+                    onClick={() => setOtpModal(false)}
+                    className="flex-1 py-2 rounded-lg border border-sp-border text-slate-400 hover:text-white text-sm transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={requestOtp}
+                    disabled={otpSending}
+                    className="flex-1 py-2 rounded-lg bg-sp-accent text-white text-sm font-semibold hover:opacity-90 disabled:opacity-50 transition-opacity"
+                  >
+                    {otpSending ? 'Sending…' : 'Send OTP'}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {otpStep === 'verify' && (
+              <>
+                <p className="text-[12px] text-green-400">OTP sent to your Telegram. Enter it below.</p>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={6}
+                  placeholder="Enter 6-digit OTP"
+                  value={otpInput}
+                  onChange={e => { setOtpInput(e.target.value.replace(/\D/g, '')); setOtpError('') }}
+                  className="w-full bg-sp-hover border border-sp-border rounded-lg px-3 py-2.5 text-white text-center text-xl font-mono tracking-widest focus:outline-none focus:border-sp-accent"
+                  autoFocus
+                />
+                {otpError && <p className="text-xs text-red-400">{otpError}</p>}
+                <div className="flex gap-2 pt-1">
+                  <button
+                    onClick={() => setOtpModal(false)}
+                    className="flex-1 py-2 rounded-lg border border-sp-border text-slate-400 hover:text-white text-sm transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={confirmDelete}
+                    disabled={deleting || otpInput.length < 6}
+                    className="flex-1 py-2 rounded-lg border border-red-500/50 text-red-400 hover:bg-red-500/10 text-sm font-semibold disabled:opacity-40 transition-colors"
+                  >
+                    {deleting ? 'Deleting…' : 'Confirm Delete'}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -482,7 +576,7 @@ function Metric({ label, value }: { label: string; value: number | null }) {
   return (
     <div className="text-center">
       <p className={`text-2xl font-bold ${value != null && value > 80 ? 'text-red-400' : 'text-slate-200'}`}>
-        {value != null ? `${value}%` : '–'}
+        {value != null ? `${value}%` : '—'}
       </p>
       <p className="text-[10px] text-slate-600 uppercase tracking-wider">{label}</p>
     </div>
@@ -521,3 +615,4 @@ function CommandStatusBadge({ status }: { status: string }) {
     </span>
   )
 }
+

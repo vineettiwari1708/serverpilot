@@ -53,7 +53,7 @@ export default function Deployments() {
   const page  = Math.floor(offset / LIMIT)
 
   return (
-    <div className="p-6 space-y-6 max-w-5xl">
+    <div className="p-4 md:p-6 space-y-6 max-w-5xl">
 
       <div>
         <h1 className="text-2xl font-bold text-white">Deployments</h1>
@@ -166,3 +166,4 @@ function duration(start: string, end: string | null) {
   if (s < 60) return `${s}s`
   return `${Math.floor(s / 60)}m ${s % 60}s`
 }
+

@@ -65,10 +65,10 @@ export default function Users() {
     await load()
   }
 
-  if (loading) return <div className="p-6 text-slate-600 text-sm animate-pulse">Loading…</div>
+  if (loading) return <div className="p-4 md:p-6 text-slate-600 text-sm animate-pulse">Loading…</div>
 
   return (
-    <div className="p-6 space-y-6 max-w-3xl">
+    <div className="p-4 md:p-6 space-y-6 max-w-3xl">
 
       <div className="flex items-center justify-between">
         <div>
@@ -209,3 +209,4 @@ export default function Users() {
     </div>
   )
 }
+

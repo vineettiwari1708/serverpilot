@@ -1,6 +1,6 @@
-# ServerPilot Local v0.2
+# ServerPilot
 
-A self-hosted server management control panel for monitoring servers, managing Docker application deployments, running database backups, and tracking audit logs.
+A self-hosted server monitoring and deployment management panel. Monitor CPU, RAM, disk and Docker containers across multiple servers, manage deployments via webhooks, run database backups, and receive instant Telegram notifications.
 
 ---
 
@@ -9,11 +9,11 @@ A self-hosted server management control panel for monitoring servers, managing D
 | Layer | Technology |
 |---|---|
 | Frontend | React 18, TypeScript, Vite, Tailwind CSS |
-| Backend | Node.js, Express |
+| Backend | Node.js 20, Express |
 | Database | PostgreSQL 16 |
-| Cache / Queue | Redis 7 |
+| Cache | Redis 7 |
 | Reverse Proxy | Traefik v3 |
-| Agent | Node.js (runs inside Docker, has Docker socket access) |
+| Agent | Node.js (Docker socket access) |
 | Containerisation | Docker Compose |
 
 ---
@@ -22,19 +22,19 @@ A self-hosted server management control panel for monitoring servers, managing D
 
 | Container | Role | URL |
 |---|---|---|
-| `sp-frontend` | React SPA served by nginx | http://localhost:8082 |
+| `sp-frontend` | React dashboard (Nginx) | http://localhost:8082 |
 | `sp-backend` | REST API | http://localhost:8081 |
 | `sp-postgres` | PostgreSQL | localhost:5433 |
-| `sp-redis` | Redis | internal only |
-| `sp-traefik` | Reverse proxy | http://localhost:80 (dashboard: 8080) |
-| `sp-agent-local` | Local server agent | internal only |
+| `sp-redis` | Redis | internal |
+| `sp-traefik` | Reverse proxy | :80 (dashboard: :8080) |
+| `sp-agent-local` | Local machine agent | internal |
 
 ---
 
 ## Getting Started
 
 ### Prerequisites
-- Docker Desktop (Windows / Mac / Linux)
+- Docker Desktop
 - Docker Compose v2
 
 ### Run
@@ -44,7 +44,7 @@ cd d:\Project\serverpilot
 docker compose up -d
 ```
 
-The UI is available at **http://localhost:8082**
+Dashboard: **http://localhost:8082**
 
 ### Default Login
 
@@ -52,8 +52,6 @@ The UI is available at **http://localhost:8082**
 |---|---|
 | Email | admin@serverpilot.local |
 | Password | changeme |
-
-Change these via the `.env` file (see below).
 
 ### Stop
 
@@ -65,37 +63,23 @@ docker compose down
 
 ## Environment Variables
 
-Create a `.env` file in the project root (copy from `.env.example` if present):
+`d:\Project\serverpilot\.env`:
 
 ```env
 DB_NAME=serverpilot
 DB_USER=serverpilot
 DB_PASSWORD=secret123
-JWT_SECRET=dev-jwt-secret-change-in-prod
-AGENT_SECRET=dev-agent-secret-change-in-prod
-AGENT_TOKEN=your-agent-token-here
+JWT_SECRET=change-this-to-a-long-random-string-in-production
+AGENT_SECRET=change-this-agent-secret-too
+APP_ENV=development
+BACKEND_PORT=8081
 SEED_ADMIN_EMAIL=admin@serverpilot.local
 SEED_ADMIN_PASSWORD=changeme
 SEED_ADMIN_NAME=Admin
-```
 
----
-
-## Rebuild After Code Changes
-
-```bash
-# Rebuild a specific service
-docker compose build frontend
-docker compose build backend
-docker compose build agent
-
-# Restart after rebuild
-docker compose up -d frontend
-docker compose up -d backend
-docker compose up -d agent
-
-# Rebuild and restart all
-docker compose up -d --build
+# Telegram notifications
+TELEGRAM_BOT_TOKEN=your-bot-token-from-botfather
+TELEGRAM_CHAT_ID=your-chat-id
 ```
 
 ---
@@ -103,58 +87,95 @@ docker compose up -d --build
 ## Features
 
 ### Servers
-- Register and monitor servers via the agent heartbeat
-- View CPU, RAM, disk usage and Docker container count in real time
+- Register servers via agent heartbeat (every 30s)
+- Live CPU, RAM, disk, Docker container count
+- **OTP-secured delete** — clicking Delete sends a 6-digit OTP to Telegram; server is only deleted after OTP is verified
+- Tag servers (prod, staging, dev) and filter by tag
+- Responsive sidebar — collapses to icon-only on desktop, hamburger menu on mobile
 
-### Applications
-- Deploy Docker Compose applications to registered servers
-- Trigger deployments via webhook: `POST /api/webhooks/deploy/{token}`
-- View deployment history and logs
+### Telegram Notifications
+Every server deletion sends a Telegram message with server name, who deleted it, and the time (IST).
 
-### Backups
-- **PostgreSQL via Docker** (recommended) — runs `pg_dump` inside the DB container via `docker exec`, no network access needed
-- **PostgreSQL direct** — connects via a full `postgres://` URL
-- **Files** — archives a directory with `tar.gz`
-- Schedule recurring backups with a configurable interval
-
-#### Creating a backup of the erpnew database
-
-1. Go to **Backups → + Manual Backup**
-2. Server: `localhost`
-3. Type: `PostgreSQL via Docker (recommended)`
-4. Target: `docker+postgres://<db_user>:<db_password>@<container_name>/<db_name>`
-5. Click **Run Backup**
-
-#### Where backup files are saved
-
-- **Inside agent container:** `/opt/serverpilot/backups/`
-- **Docker volume:** `serverpilot_sp-backups`
-
-To copy a backup to your Windows machine:
-
-```powershell
-# List backups
-docker exec sp-agent-local ls /opt/serverpilot/backups
-
-# Copy a specific file
-docker cp sp-agent-local:/opt/serverpilot/backups/<filename> .
-
-# Copy all backups
-docker cp sp-agent-local:/opt/serverpilot/backups/. "D:\Project\serverpilot\backups\"
-```
+Setup:
+1. Create a bot via @BotFather on Telegram → get token
+2. Start the bot, fetch `https://api.telegram.org/bot<TOKEN>/getUpdates` → get chat ID
+3. Add `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` to `.env`
+4. Restart backend: `docker compose up -d backend`
 
 ### Monitoring
-- Live CPU, RAM, disk charts per server
-- Container list with status
+- Live CPU/RAM/disk/container metrics per server
+- Sparkline charts — last 60 heartbeat samples
+- Alert badges on offline servers
+
+### Applications
+- Deploy Docker Compose apps to registered servers
+- Webhook trigger: `POST /api/webhooks/deploy/{token}`
+- Deployment history and logs
+
+### Backups
+- **PostgreSQL via Docker** — `pg_dump` inside container, no network needed
+- **PostgreSQL direct** — via `postgres://` URL
+- **Files** — `tar.gz` archive of a directory
+- Scheduled recurring backups
+
+Backup files stored in Docker volume `sp-backups`, accessible via:
+
+```powershell
+docker exec sp-agent-local ls /opt/serverpilot/backups
+docker cp sp-agent-local:/opt/serverpilot/backups/<file> .
+```
 
 ### Alerts
-- Configurable threshold alerts for CPU / RAM / disk
+- Threshold alerts for CPU / RAM / disk (configurable per server)
 
 ### Audit Log
-- Tracks all user actions with timestamps, IP, and affected resource
+- All user actions logged with timestamp, IP, and resource
 
 ### Users
-- Manage admin accounts with role-based access
+- Admin account management with role-based access
+
+---
+
+## Monitoring an External Project (e.g. ERP)
+
+To make an external Docker project appear in ServerPilot as a monitored server:
+
+```powershell
+# 1. Register the server
+$result = Invoke-RestMethod -Method POST -Uri "http://localhost:8081/api/agent/register" `
+  -ContentType "application/json" `
+  -Body '{"name":"ERP New Docker","hostname":"erpnew-docker.local","ip":"127.0.0.1","agent_secret":"change-this-agent-secret-too"}'
+
+# 2. Run an agent container with the returned token
+docker run -d --name sp-agent-erpnew `
+  -e CONTROL_URL=http://host.docker.internal:8081 `
+  -e AGENT_TOKEN=$($result.token) `
+  -e HEARTBEAT_INTERVAL=30000 `
+  -v /var/run/docker.sock:/var/run/docker.sock `
+  --restart unless-stopped `
+  serverpilot-agent:latest
+```
+
+The ERP server now appears online in the dashboard with live metrics.
+
+---
+
+## Rebuild After Code Changes
+
+```bash
+docker compose build backend && docker compose up -d backend
+docker compose build frontend && docker compose up -d frontend
+```
+
+---
+
+## CI/CD — GitHub Actions (Self-Hosted Runner)
+
+Defined in `.github/workflows/deploy.yml`. On push to `main`:
+1. Builds frontend and backend Docker images
+2. Calls the ServerPilot webhook to redeploy
+
+Runner runs locally — polls GitHub, no inbound ports needed.
 
 ---
 
@@ -163,32 +184,34 @@ docker cp sp-agent-local:/opt/serverpilot/backups/. "D:\Project\serverpilot\back
 ```
 serverpilot/
 ├── backend/
-│   ├── src/
-│   │   ├── server.js          # Entry point
-│   │   ├── migrate.js         # DB schema migrations
-│   │   ├── scheduler.js       # Backup schedule runner
-│   │   └── routes/
-│   │       ├── auth.js
-│   │       ├── apps.js
-│   │       ├── backups.js
-│   │       ├── servers.js
-│   │       ├── agent.js       # Agent heartbeat & job endpoints
-│   │       └── ...
-│   └── Dockerfile
+│   └── src/
+│       ├── server.js          # Entry point
+│       ├── migrate.js         # Auto-runs DB migrations on startup
+│       ├── scheduler.js       # Backup schedule runner
+│       ├── notify.js          # Telegram notifications
+│       ├── alerts.js          # Alert threshold checks
+│       └── routes/
+│           ├── servers.js     # Server CRUD + OTP delete
+│           ├── agent.js       # Heartbeat + job endpoints
+│           ├── backups.js
+│           ├── webhooks.js
+│           └── ...
 ├── frontend/
-│   ├── src/
-│   │   ├── pages/
-│   │   │   ├── Dashboard.tsx
-│   │   │   ├── Applications.tsx
-│   │   │   ├── Backups.tsx
-│   │   │   ├── Servers.tsx
-│   │   │   └── ...
-│   │   └── services/api.ts
-│   ├── nginx.conf
-│   └── Dockerfile
+│   └── src/
+│       ├── pages/
+│       │   ├── Dashboard.tsx
+│       │   ├── Servers.tsx
+│       │   ├── ServerDetail.tsx   # OTP delete modal
+│       │   ├── Monitoring.tsx
+│       │   ├── Alerts.tsx
+│       │   ├── Backups.tsx
+│       │   └── ...
+│       ├── components/
+│       │   ├── Layout.tsx         # Mobile hamburger header
+│       │   └── Sidebar.tsx        # Collapsible sidebar (icon mode)
+│       └── services/api.ts
 ├── agent/
-│   ├── agent.js               # Heartbeat, deployments, backups
-│   └── Dockerfile
+│   └── agent.js               # Heartbeat, deployments, backups
 └── docker-compose.yml
 ```
 
@@ -196,11 +219,8 @@ serverpilot/
 
 ## Database
 
-ServerPilot uses its own PostgreSQL instance (`sp-postgres` on port 5433).  
-Connect directly:
-
 ```bash
 docker exec sp-postgres psql -U serverpilot -d serverpilot
 ```
 
-Schema is auto-migrated on backend startup via `migrate.js`.
+Schema auto-migrates on backend startup via `migrate.js`.

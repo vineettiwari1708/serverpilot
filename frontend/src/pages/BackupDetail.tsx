@@ -98,8 +98,8 @@ export default function BackupDetail() {
     }
   }
 
-  if (loading) return <div className="p-6 text-slate-500">Loading…</div>
-  if (error)   return <div className="p-6 text-red-400">{error}</div>
+  if (loading) return <div className="p-4 md:p-6 text-slate-500">Loading…</div>
+  if (error)   return <div className="p-4 md:p-6 text-red-400">{error}</div>
   if (!job)    return null
 
   const isActive = ACTIVE.has(job.status)
@@ -107,7 +107,7 @@ export default function BackupDetail() {
   const isBackup = job.direction === 'backup'
 
   return (
-    <div className="p-6 space-y-4 max-w-5xl">
+    <div className="p-4 md:p-6 space-y-4 max-w-5xl">
       {/* Header */}
       <div className="flex items-center gap-3">
         <Link to="/backups" className="text-slate-500 hover:text-slate-300 text-sm transition-colors">← Backups</Link>
@@ -241,3 +241,4 @@ export default function BackupDetail() {
     </div>
   )
 }
+

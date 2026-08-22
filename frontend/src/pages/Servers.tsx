@@ -37,6 +37,13 @@ export default function Servers() {
   const [deleting,     setDeleting]     = useState<string | null>(null)
   const [tagFilter,    setTagFilter]    = useState('')
 
+  // OTP modal state
+  const [otpTarget,  setOtpTarget]  = useState<Server | null>(null)
+  const [otpStep,    setOtpStep]    = useState<'send' | 'verify'>('send')
+  const [otpInput,   setOtpInput]   = useState('')
+  const [otpSending, setOtpSending] = useState(false)
+  const [otpError,   setOtpError]   = useState('')
+
   const isAdmin = user?.role === 'admin'
 
   const fetchServers = useCallback(async () => {
@@ -60,21 +67,32 @@ export default function Servers() {
     return () => clearInterval(t)
   }, [fetchServers])
 
-  const deleteServer = async (e: React.MouseEvent, server: Server) => {
-    e.preventDefault()
-    e.stopPropagation()
-    if (!confirm(`Delete "${server.name}"?\n\nThis removes all heartbeat data, containers, deployments, backups and alerts for this server. This cannot be undone.`)) return
-    setDeleting(server.id)
+  const requestOtp = async () => {
+    if (!otpTarget) return
+    setOtpSending(true)
+    setOtpError('')
     try {
-      const r = await api.delete(`/api/servers/${server.id}`)
-      if (r.ok) await fetchServers()
-    } finally {
-      setDeleting(null)
-    }
+      const r = await api.post(`/api/servers/${otpTarget.id}/request-otp`, {})
+      if (r.ok) { setOtpStep('verify') }
+      else { const d = await r.json(); setOtpError(d.error || 'Failed to send OTP') }
+    } catch { setOtpError('Network error') }
+    finally { setOtpSending(false) }
+  }
+
+  const confirmDelete = async () => {
+    if (!otpTarget || !otpInput.trim()) { setOtpError('Enter the OTP'); return }
+    setDeleting(otpTarget.id)
+    setOtpError('')
+    try {
+      const r = await api.delete(`/api/servers/${otpTarget.id}`, { otp: otpInput.trim() })
+      if (r.ok) { setOtpTarget(null); await fetchServers() }
+      else { const d = await r.json(); setOtpError(d.error || 'Delete failed') }
+    } catch { setOtpError('Network error') }
+    finally { setDeleting(null) }
   }
 
   return (
-    <div className="p-6 space-y-6 max-w-6xl">
+    <div className="p-4 md:p-6 space-y-6 max-w-6xl">
 
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -144,7 +162,7 @@ export default function Servers() {
                 server={s}
                 isAdmin={isAdmin}
                 deleting={deleting === s.id}
-                onDelete={e => deleteServer(e, s)}
+                onDelete={e => { e.preventDefault(); e.stopPropagation(); navigate(`/servers/${s.id}`) }}
                 onView={() => navigate(`/servers/${s.id}`)}
               />
             ))}
@@ -155,6 +173,60 @@ export default function Servers() {
 
       {/* Onboarding modal */}
       {showOnboard && <OnboardModal onClose={() => setShowOnboard(false)} />}
+
+      {/* OTP Delete Modal */}
+      {otpTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+          <div className="bg-sp-surface border border-sp-border rounded-2xl p-6 w-full max-w-sm space-y-4 shadow-2xl">
+            <h3 className="text-base font-bold text-white">Delete Server</h3>
+            <p className="text-[13px] text-slate-400">
+              This will permanently delete <span className="text-white font-semibold">{otpTarget.name}</span> and all its data.
+            </p>
+
+            {otpStep === 'send' && (
+              <>
+                <p className="text-[12px] text-slate-500">A one-time password will be sent to your Telegram. Enter it to confirm deletion.</p>
+                {otpError && <p className="text-xs text-red-400">{otpError}</p>}
+                <div className="flex gap-2 pt-1">
+                  <button onClick={() => setOtpTarget(null)}
+                    className="flex-1 py-2 rounded-lg border border-sp-border text-slate-400 hover:text-white text-sm transition-colors">
+                    Cancel
+                  </button>
+                  <button onClick={requestOtp} disabled={otpSending}
+                    className="flex-1 py-2 rounded-lg bg-sp-accent text-white text-sm font-semibold hover:opacity-90 disabled:opacity-50 transition-opacity">
+                    {otpSending ? 'Sending…' : 'Send OTP'}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {otpStep === 'verify' && (
+              <>
+                <p className="text-[12px] text-green-400">OTP sent to your Telegram. Enter it below.</p>
+                <input
+                  type="text" inputMode="numeric" maxLength={6}
+                  placeholder="Enter 6-digit OTP"
+                  value={otpInput}
+                  onChange={e => { setOtpInput(e.target.value.replace(/\D/g, '')); setOtpError('') }}
+                  className="w-full bg-sp-hover border border-sp-border rounded-lg px-3 py-2.5 text-white text-center text-xl font-mono tracking-widest focus:outline-none focus:border-sp-accent"
+                  autoFocus
+                />
+                {otpError && <p className="text-xs text-red-400">{otpError}</p>}
+                <div className="flex gap-2 pt-1">
+                  <button onClick={() => setOtpTarget(null)}
+                    className="flex-1 py-2 rounded-lg border border-sp-border text-slate-400 hover:text-white text-sm transition-colors">
+                    Cancel
+                  </button>
+                  <button onClick={confirmDelete} disabled={!!deleting || otpInput.length < 6}
+                    className="flex-1 py-2 rounded-lg border border-red-500/50 text-red-400 hover:bg-red-500/10 text-sm font-semibold disabled:opacity-40 transition-colors">
+                    {deleting ? 'Deleting…' : 'Confirm Delete'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
     </div>
   )
@@ -430,3 +502,4 @@ function timeAgo(iso: string): string {
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
   return `${Math.floor(diff / 3600)}h ago`
 }
+

@@ -146,7 +146,7 @@ export default function Dashboard() {
   const warningCount  = alerts.filter(a => a.severity === 'warning').length
 
   return (
-    <div className="p-6 space-y-6 max-w-6xl">
+    <div className="p-4 md:p-6 space-y-6 max-w-6xl">
 
       {/* Page header */}
       <div className="flex items-center justify-between">
@@ -437,3 +437,4 @@ function timeAgo(iso: string): string {
   if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`
   return `${Math.floor(sec / 86400)}d ago`
 }
+

@@ -180,12 +180,12 @@ export default function AppDetail() {
   const setEnvValue  = (i: number, value: string) => setEnvRows(r => r.map((row, j) => j === i ? { ...row, value } : row))
   const toggleReveal = (i: number) => setEnvRows(r => r.map((row, j) => j === i ? { ...row, revealed: !row.revealed } : row))
 
-  if (loading) return <div className="p-6 text-slate-500">Loading…</div>
-  if (error)   return <div className="p-6 text-red-400">{error}</div>
+  if (loading) return <div className="p-4 md:p-6 text-slate-500">Loading…</div>
+  if (error)   return <div className="p-4 md:p-6 text-red-400">{error}</div>
   if (!app)    return null
 
   return (
-    <div className="p-6 space-y-6 max-w-5xl">
+    <div className="p-4 md:p-6 space-y-6 max-w-5xl">
       {/* Header */}
       <div className="flex items-center gap-3">
         <Link to="/applications" className="text-slate-500 hover:text-slate-300 text-sm transition-colors">← Apps</Link>
@@ -489,3 +489,4 @@ function deployDuration(start: string, end: string | null) {
   if (s < 60) return `${s}s`
   return `${Math.floor(s / 60)}m ${s % 60}s`
 }
+

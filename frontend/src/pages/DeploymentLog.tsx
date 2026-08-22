@@ -69,15 +69,15 @@ export default function DeploymentLog() {
     return () => { if (timerRef.current) clearInterval(timerRef.current) }
   }, [id])
 
-  if (loading) return <div className="p-6 text-slate-500">Loading…</div>
-  if (error)   return <div className="p-6 text-red-400">{error}</div>
+  if (loading) return <div className="p-4 md:p-6 text-slate-500">Loading…</div>
+  if (error)   return <div className="p-4 md:p-6 text-red-400">{error}</div>
   if (!dep)    return null
 
   const isActive = ACTIVE.has(dep.status)
   const color = STATUS_COLOR[dep.status] || 'text-slate-400'
 
   return (
-    <div className="p-6 space-y-4 max-w-5xl">
+    <div className="p-4 md:p-6 space-y-4 max-w-5xl">
       {/* Header */}
       <div className="flex items-center gap-3">
         <Link to={`/applications/${dep.app_id}`} className="text-slate-500 hover:text-slate-300 text-sm transition-colors">
@@ -137,3 +137,4 @@ export default function DeploymentLog() {
     </div>
   )
 }
+

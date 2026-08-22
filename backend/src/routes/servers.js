@@ -3,18 +3,24 @@
 const express           = require('express')
 const { requireAuth }   = require('../auth/middleware')
 const { logAudit }      = require('../audit')
+const { sendTelegram }  = require('../notify')
 
 function requireAdmin(req, res, next) {
   if (req.user?.role !== 'admin') return res.status(403).json({ error: 'admin only' })
   next()
 }
 
+// In-memory OTP store: serverId -> { otp, expiresAt }
+const otpStore = new Map()
+
+function generateOtp() {
+  return String(Math.floor(100000 + Math.random() * 900000))
+}
+
 module.exports = function serversRouter(pool) {
   const router = express.Router()
 
   // GET /api/servers
-  // Returns all registered servers with their latest heartbeat metrics.
-  // A server is "online" if last_seen within the last 90 seconds.
   router.get('/api/servers', requireAuth, async (req, res) => {
     try {
       const { rows } = await pool.query(`
@@ -46,16 +52,13 @@ module.exports = function serversRouter(pool) {
         ORDER BY s.name
       `)
 
-      const total   = rows.length
-      const online  = rows.filter(r => r.status === 'online').length
-      const offline = total - online
+      const total      = rows.length
+      const online     = rows.filter(r => r.status === 'online').length
+      const offline    = total - online
       const containers = rows.reduce((s, r) => s + (r.docker_count || 0), 0)
 
-      res.json({
-        servers: rows,
-        summary: { total, online, offline, containers },
-      })
-    } catch (err) {
+      res.json({ servers: rows, summary: { total, online, offline, containers } })
+    } catch {
       res.status(500).json({ error: 'internal server error' })
     }
   })
@@ -83,7 +86,7 @@ module.exports = function serversRouter(pool) {
     }
   })
 
-  // GET /api/servers/:id/token  (admin only — returns the agent_token for reconnecting an agent)
+  // GET /api/servers/:id/token
   router.get('/api/servers/:id/token', requireAuth, requireAdmin, async (req, res) => {
     try {
       const { rows } = await pool.query(
@@ -96,14 +99,47 @@ module.exports = function serversRouter(pool) {
     }
   })
 
-  // DELETE /api/servers/:id  (admin only — cascades to all related data)
+  // POST /api/servers/:id/request-otp  — generate & send OTP via Telegram
+  router.post('/api/servers/:id/request-otp', requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const { rows } = await pool.query(
+        'SELECT name FROM servers WHERE id = $1', [req.params.id]
+      )
+      if (!rows.length) return res.status(404).json({ error: 'server not found' })
+
+      const otp = generateOtp()
+      otpStore.set(req.params.id, { otp, expiresAt: Date.now() + 5 * 60 * 1000 })
+
+      await sendTelegram(
+        `🔐 *Delete Confirmation OTP*\n\nServer: \`${rows[0].name}\`\nOTP: *${otp}*\n\n⚠️ Valid for 5 minutes. Do not share.`
+      )
+
+      res.json({ ok: true })
+    } catch {
+      res.status(500).json({ error: 'internal server error' })
+    }
+  })
+
+  // DELETE /api/servers/:id  — requires OTP in body
   router.delete('/api/servers/:id', requireAuth, requireAdmin, async (req, res) => {
+    const { otp } = req.body || {}
+    if (!otp) return res.status(400).json({ error: 'OTP is required' })
+
+    const stored = otpStore.get(req.params.id)
+    if (!stored)                        return res.status(400).json({ error: 'No OTP requested. Request one first.' })
+    if (Date.now() > stored.expiresAt)  { otpStore.delete(req.params.id); return res.status(400).json({ error: 'OTP expired' }) }
+    if (stored.otp !== String(otp))     return res.status(400).json({ error: 'Invalid OTP' })
+
+    otpStore.delete(req.params.id)
+
     try {
       const { rows } = await pool.query(
         'DELETE FROM servers WHERE id = $1 RETURNING name', [req.params.id]
       )
       if (!rows.length) return res.status(404).json({ error: 'server not found' })
-      logAudit(pool, req, 'server.delete', 'server', req.params.id, { name: rows[0].name })
+      const serverName = rows[0].name
+      logAudit(pool, req, 'server.delete', 'server', req.params.id, { name: serverName })
+      sendTelegram(`🗑️ *Server Deleted*\n\nServer: \`${serverName}\`\nDeleted by: ${req.user?.name || req.user?.email || 'unknown'}\nTime: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: true })}`)
       res.status(204).end()
     } catch {
       res.status(500).json({ error: 'internal server error' })

@@ -39,6 +39,8 @@ services:
       - SEED_ADMIN_EMAIL=${SEED_ADMIN_EMAIL:-admin@serverpilot.local}
       - SEED_ADMIN_PASSWORD=${SEED_ADMIN_PASSWORD:-changeme}
       - SEED_ADMIN_NAME=${SEED_ADMIN_NAME:-Admin}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
     ports:
       - "8081:8081"
     depends_on:
