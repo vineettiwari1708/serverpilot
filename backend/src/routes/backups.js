@@ -35,8 +35,8 @@ module.exports = function backupsRouter(pool) {
     if (!server_id || !type || !target) {
       return res.status(400).json({ error: 'server_id, type, and target are required' })
     }
-    if (!['postgres', 'files'].includes(type)) {
-      return res.status(400).json({ error: 'type must be postgres or files' })
+    if (!['postgres', 'postgres-docker', 'files'].includes(type)) {
+      return res.status(400).json({ error: 'type must be postgres, postgres-docker, or files' })
     }
     try {
       const { rows: srv } = await pool.query(

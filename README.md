@@ -1,324 +1,206 @@
-# ServerPilot
+# ServerPilot Local v0.2
 
-A self-hosted server management control plane. Deploy and monitor Docker applications across multiple Linux servers from a single dashboard.
+A self-hosted server management control panel for monitoring servers, managing Docker application deployments, running database backups, and tracking audit logs.
 
 ---
 
-## What it does
+## Tech Stack
 
-| Feature | Description |
+| Layer | Technology |
 |---|---|
-| **Server fleet** | Register servers via a lightweight agent. See CPU, RAM, disk, and container counts live. Tag servers (prod, staging, dev) and filter the fleet view. |
-| **Docker management** | Start, stop, restart containers on any registered server directly from the UI. |
-| **App deployments** | Store Docker Compose configs in the dashboard. Deploy to any server with one click. Watch the deployment log stream live. |
-| **Rollback** | Every deployment is snapshotted. Roll back to any previous successful deployment in one click. |
-| **Environment variables** | Store env vars per app (masked in the UI). They are written to `.env` on the server at deploy time and never included in the Compose YAML. |
-| **Backups** | Schedule and trigger `pg_dump` and `tar` backups on any server. Run restores from the UI. |
-| **Monitoring & alerts** | CPU / RAM / disk thresholds per server. Auto-creates alerts when thresholds are breached, auto-resolves when metrics recover. |
-| **Notifications** | Webhook and Slack channels. Fire on warning / critical / offline events. |
-| **Audit log** | Every user action (deploy, delete, login, etc.) is recorded with user, IP, and detail. |
-| **User management** | Admin and viewer roles. Admins can create users and change roles. All users can change their own name and password. |
-| **Command palette** | Press `Ctrl+K` / `Cmd+K` anywhere to fuzzy-search servers and apps. |
-| **Deploy webhooks** | Each app has a unique webhook URL. `POST` it from any CI/CD pipeline to trigger a deploy — no auth token needed. |
+| Frontend | React 18, TypeScript, Vite, Tailwind CSS |
+| Backend | Node.js, Express |
+| Database | PostgreSQL 16 |
+| Cache / Queue | Redis 7 |
+| Reverse Proxy | Traefik v3 |
+| Agent | Node.js (runs inside Docker, has Docker socket access) |
+| Containerisation | Docker Compose |
 
 ---
 
-## Architecture
+## Services & Ports
 
-```
-┌─────────────────────────────────────────┐
-│            Control Plane (this repo)    │
-│                                         │
-│  ┌──────────┐   ┌──────────────────┐   │
-│  │ Frontend │   │   Backend API    │   │
-│  │ React +  │──▶│  Node/Express    │   │
-│  │ Vite     │   │  Port 8081       │   │
-│  └──────────┘   └────────┬─────────┘   │
-│      :80 via Traefik     │             │
-│                      ┌───▼───┐         │
-│                      │  PG   │         │
-│                      │ Redis │         │
-│                      └───────┘         │
-└─────────────────────────────────────────┘
-          ▲  Agent polls every 30s
-          │
-┌─────────┴──────────┐   ┌────────────────────┐
-│   Linux Server A   │   │   Linux Server B   │
-│  agent.js running  │   │  agent.js running  │
-│  Docker installed  │   │  Docker installed  │
-└────────────────────┘   └────────────────────┘
-```
-
-- **Control plane** runs anywhere Docker is available (your own server, VPS, local machine).
-- **Agent** (`agent/agent.js`) is a single Node.js file with zero npm dependencies. It runs on each managed server and communicates with the control plane over HTTP.
-- **Traefik** routes `/api/*` to the backend and `/` to the frontend on port 80.
+| Container | Role | URL |
+|---|---|---|
+| `sp-frontend` | React SPA served by nginx | http://localhost:8082 |
+| `sp-backend` | REST API | http://localhost:8081 |
+| `sp-postgres` | PostgreSQL | localhost:5433 |
+| `sp-redis` | Redis | internal only |
+| `sp-traefik` | Reverse proxy | http://localhost:80 (dashboard: 8080) |
+| `sp-agent-local` | Local server agent | internal only |
 
 ---
 
-## Prerequisites
+## Getting Started
 
-**Control plane machine:**
-- Docker + Docker Compose v2
+### Prerequisites
+- Docker Desktop (Windows / Mac / Linux)
+- Docker Compose v2
 
-**Each managed server:**
-- Node.js 18+
-- Docker
-
----
-
-## Quick start
-
-### 1. Clone and configure
+### Run
 
 ```bash
-git clone https://github.com/yourname/serverpilot.git
-cd serverpilot
-cp .env.example .env
+cd d:\Project\serverpilot
+docker compose up -d
 ```
 
-Edit `.env`:
+The UI is available at **http://localhost:8082**
+
+### Default Login
+
+| Field | Value |
+|---|---|
+| Email | admin@serverpilot.local |
+| Password | changeme |
+
+Change these via the `.env` file (see below).
+
+### Stop
+
+```bash
+docker compose down
+```
+
+---
+
+## Environment Variables
+
+Create a `.env` file in the project root (copy from `.env.example` if present):
 
 ```env
-DB_PASSWORD=your-strong-password
 DB_NAME=serverpilot
 DB_USER=serverpilot
-
-JWT_SECRET=long-random-string-here
-AGENT_SECRET=another-random-string-here
-
-APP_ENV=production
-
-# First admin account created on first boot
-SEED_ADMIN_EMAIL=admin@yourdomain.com
+DB_PASSWORD=secret123
+JWT_SECRET=dev-jwt-secret-change-in-prod
+AGENT_SECRET=dev-agent-secret-change-in-prod
+AGENT_TOKEN=your-agent-token-here
+SEED_ADMIN_EMAIL=admin@serverpilot.local
 SEED_ADMIN_PASSWORD=changeme
 SEED_ADMIN_NAME=Admin
 ```
 
-### 2. Start the control plane
+---
+
+## Rebuild After Code Changes
 
 ```bash
+# Rebuild a specific service
+docker compose build frontend
+docker compose build backend
+docker compose build agent
+
+# Restart after rebuild
+docker compose up -d frontend
+docker compose up -d backend
+docker compose up -d agent
+
+# Rebuild and restart all
 docker compose up -d --build
 ```
 
-Services started:
-- Frontend → `http://localhost` (port 80)
-- Backend API → `http://localhost:8081`
-- Traefik dashboard → `http://localhost:8080`
-- PostgreSQL → `localhost:5433`
+---
 
-### 3. Log in
+## Features
 
-Open `http://localhost` and log in with the admin credentials from your `.env`.
+### Servers
+- Register and monitor servers via the agent heartbeat
+- View CPU, RAM, disk usage and Docker container count in real time
 
-### 4. Register a server
+### Applications
+- Deploy Docker Compose applications to registered servers
+- Trigger deployments via webhook: `POST /api/webhooks/deploy/{token}`
+- View deployment history and logs
 
-In the UI go to **Servers → Add Server** and follow the 5-step onboarding modal. It generates the exact commands to run on your remote server:
+### Backups
+- **PostgreSQL via Docker** (recommended) — runs `pg_dump` inside the DB container via `docker exec`, no network access needed
+- **PostgreSQL direct** — connects via a full `postgres://` URL
+- **Files** — archives a directory with `tar.gz`
+- Schedule recurring backups with a configurable interval
 
-```bash
-# On the remote server — example (generated by the UI):
-curl -fsSL https://raw.githubusercontent.com/yourname/serverpilot/main/agent/install.sh | \
-  CONTROL_URL=http://your-control-plane:8081 \
-  AGENT_SECRET=your-agent-secret \
-  SERVER_NAME=my-server \
-  bash
+#### Creating a backup of the erpnew database
+
+1. Go to **Backups → + Manual Backup**
+2. Server: `localhost`
+3. Type: `PostgreSQL via Docker (recommended)`
+4. Target: `docker+postgres://<db_user>:<db_password>@<container_name>/<db_name>`
+5. Click **Run Backup**
+
+#### Where backup files are saved
+
+- **Inside agent container:** `/opt/serverpilot/backups/`
+- **Docker volume:** `serverpilot_sp-backups`
+
+To copy a backup to your Windows machine:
+
+```powershell
+# List backups
+docker exec sp-agent-local ls /opt/serverpilot/backups
+
+# Copy a specific file
+docker cp sp-agent-local:/opt/serverpilot/backups/<filename> .
+
+# Copy all backups
+docker cp sp-agent-local:/opt/serverpilot/backups/. "D:\Project\serverpilot\backups\"
 ```
 
-Or manually:
+### Monitoring
+- Live CPU, RAM, disk charts per server
+- Container list with status
 
-```bash
-# On the remote server
-curl -O https://raw.githubusercontent.com/yourname/serverpilot/main/agent/agent.js
+### Alerts
+- Configurable threshold alerts for CPU / RAM / disk
 
-AGENT_TOKEN=<token-from-register-step> \
-CONTROL_URL=http://your-control-plane:8081 \
-node agent.js
-```
+### Audit Log
+- Tracks all user actions with timestamps, IP, and affected resource
 
-**Register the server first** (returns the token):
-
-```bash
-curl -X POST http://your-control-plane:8081/api/agent/register \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "my-server",
-    "hostname": "server1.example.com",
-    "agent_secret": "your-agent-secret-from-env"
-  }'
-```
+### Users
+- Manage admin accounts with role-based access
 
 ---
 
-## Deploying an application
-
-### 1. Create the app
-
-**UI:** Applications → New App → paste your `docker-compose.yml` content.
-
-**API:**
-```bash
-curl -X POST http://localhost:8081/api/apps \
-  -H "Authorization: Bearer <your-jwt>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "myapp",
-    "compose_yaml": "services:\n  web:\n    image: nginx\n    ports:\n      - \"3000:80\"",
-    "health_check_url": "http://localhost:3000"
-  }'
-```
-
-### 2. Add environment variables (optional)
-
-In the UI: **App → Environment Variables → Add Variable**
-
-These are stored encrypted in the database and written to `.env` on the server at deploy time. They are never embedded in the Compose YAML.
-
-### 3. Deploy
-
-**UI:** App detail page → select server → **Deploy Now**
-
-The agent will:
-1. Write `docker-compose.yml` to `/opt/serverpilot/apps/<appname>/`
-2. Write `.env` with your variables
-3. Run `docker compose pull`
-4. Run `docker compose up -d --remove-orphans`
-5. Poll the health check URL until it responds 2xx (if configured)
-6. Report `success` or `failed` back to the dashboard
-
-Watch the log stream live on the deployment detail page.
-
----
-
-## Running the agent as a service
-
-Create `/etc/systemd/system/serverpilot-agent.service`:
-
-```ini
-[Unit]
-Description=ServerPilot Agent
-After=network.target docker.service
-
-[Service]
-ExecStart=/usr/bin/node /opt/serverpilot/agent.js
-Restart=always
-RestartSec=10
-Environment=AGENT_TOKEN=your-token-here
-Environment=CONTROL_URL=http://your-control-plane:8081
-Environment=HEARTBEAT_INTERVAL=30000
-
-[Install]
-WantedBy=multi-user.target
-```
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now serverpilot-agent
-```
-
----
-
-## Environment variables reference
-
-| Variable | Default | Description |
-|---|---|---|
-| `DB_PASSWORD` | `secret123` | PostgreSQL password |
-| `DB_NAME` | `serverpilot` | PostgreSQL database name |
-| `DB_USER` | `serverpilot` | PostgreSQL user |
-| `JWT_SECRET` | *(required in prod)* | Signs user session tokens |
-| `AGENT_SECRET` | *(required in prod)* | Shared secret for agent registration |
-| `APP_ENV` | `development` | Set to `production` in prod |
-| `BACKEND_PORT` | `8081` | Backend API port |
-| `SEED_ADMIN_EMAIL` | `admin@serverpilot.local` | Admin email created on first boot |
-| `SEED_ADMIN_PASSWORD` | `changeme` | Admin password — **change this** |
-| `SEED_ADMIN_NAME` | `Admin` | Admin display name |
-
-**Agent variables** (set on the managed server):
-
-| Variable | Default | Description |
-|---|---|---|
-| `AGENT_TOKEN` | *(required)* | Token returned by `/api/agent/register` |
-| `CONTROL_URL` | `http://localhost:8081` | URL of the control plane |
-| `HEARTBEAT_INTERVAL` | `30000` | Heartbeat interval in milliseconds |
-| `DEPLOY_DIR` | `/opt/serverpilot/apps` | Where app files are written |
-| `BACKUP_DIR` | `/opt/serverpilot/backups` | Where backup files are stored |
-
----
-
-## Project structure
+## Project Structure
 
 ```
 serverpilot/
-├── agent/
-│   └── agent.js              # Zero-dependency agent (runs on managed servers)
 ├── backend/
-│   └── src/
-│       ├── server.js         # Express entry point
-│       ├── migrate.js        # DB migrations (auto-run on start)
-│       ├── audit.js          # Audit event logging
-│       ├── alerts.js         # Metric + heartbeat alert logic
-│       ├── notify.js         # Webhook / Slack notification dispatch
-│       ├── scheduler.js      # Background: heartbeat checks, backup schedules
-│       └── routes/
-│           ├── agent.js      # Agent endpoints (heartbeat, commands, deployments)
-│           ├── apps.js       # App CRUD + deploy + rollback + deployments list
-│           ├── audit.js      # Audit log query
-│           ├── containers.js # Container action commands
-│           ├── notifications.js # Notification channel CRUD
-│           ├── servers.js    # Server CRUD + tags + token
-│           └── users.js      # User CRUD + self-update + password change
+│   ├── src/
+│   │   ├── server.js          # Entry point
+│   │   ├── migrate.js         # DB schema migrations
+│   │   ├── scheduler.js       # Backup schedule runner
+│   │   └── routes/
+│   │       ├── auth.js
+│   │       ├── apps.js
+│   │       ├── backups.js
+│   │       ├── servers.js
+│   │       ├── agent.js       # Agent heartbeat & job endpoints
+│   │       └── ...
+│   └── Dockerfile
 ├── frontend/
-│   └── src/
-│       ├── pages/            # One file per route
-│       ├── components/       # Sidebar, Layout, CommandPalette
-│       ├── context/          # AuthContext (JWT + user state)
-│       ├── hooks/            # usePageTitle
-│       └── services/         # api.ts (fetch wrapper with auth header)
-├── docker-compose.yml
-├── .env.example
-└── README.md
+│   ├── src/
+│   │   ├── pages/
+│   │   │   ├── Dashboard.tsx
+│   │   │   ├── Applications.tsx
+│   │   │   ├── Backups.tsx
+│   │   │   ├── Servers.tsx
+│   │   │   └── ...
+│   │   └── services/api.ts
+│   ├── nginx.conf
+│   └── Dockerfile
+├── agent/
+│   ├── agent.js               # Heartbeat, deployments, backups
+│   └── Dockerfile
+└── docker-compose.yml
 ```
 
 ---
 
-## Tech stack
+## Database
 
-| Layer | Technology |
-|---|---|
-| Frontend | React 18, TypeScript, Vite, Tailwind CSS, Recharts |
-| Backend | Node.js, Express, PostgreSQL (`pg`), JWT (`jsonwebtoken`), bcryptjs |
-| Agent | Node.js built-ins only — no npm install required |
-| Infra | Docker Compose, Traefik v3, PostgreSQL 16, Redis 7 |
+ServerPilot uses its own PostgreSQL instance (`sp-postgres` on port 5433).  
+Connect directly:
 
----
+```bash
+docker exec sp-postgres psql -U serverpilot -d serverpilot
+```
 
-## API overview
-
-All API routes require `Authorization: Bearer <jwt>` except `/api/agent/*` which use `Authorization: Agent <token>` and `/api/auth/login`.
-
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/api/auth/login` | Get JWT |
-| `GET` | `/api/servers` | List servers with latest metrics |
-| `PUT` | `/api/servers/:id` | Update server name / tags (admin) |
-| `DELETE` | `/api/servers/:id` | Delete server (admin) |
-| `GET` | `/api/apps` | List applications |
-| `POST` | `/api/apps` | Create application |
-| `PUT` | `/api/apps/:id` | Update compose YAML / health check / env vars |
-| `DELETE` | `/api/apps/:id` | Delete application (admin) |
-| `POST` | `/api/apps/:id/deploy` | Deploy to a server |
-| `GET` | `/api/apps/:id/webhook` | Get deploy webhook token |
-| `POST` | `/api/webhooks/deploy/:token` | Trigger deploy via webhook (no auth) |
-| `POST` | `/api/apps/:id/rollback` | Re-deploy a previous successful deployment |
-| `GET` | `/api/deployments` | List all deployments |
-| `GET` | `/api/deployments/:id` | Deployment detail + log |
-| `GET` | `/api/alerts` | List alerts |
-| `GET` | `/api/audit-logs` | Audit event log |
-| `GET` | `/api/users` | List users (admin) |
-| `PUT` | `/api/users/me` | Update own display name |
-| `PUT` | `/api/users/me/password` | Change own password |
-| `POST` | `/api/notification-channels` | Add webhook / Slack channel |
-
----
-
-## License
-
-MIT
+Schema is auto-migrated on backend startup via `migrate.js`.

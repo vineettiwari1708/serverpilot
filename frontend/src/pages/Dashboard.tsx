@@ -28,7 +28,7 @@ interface StatusData {
 }
 
 interface ServerSummary { total: number; online: number; offline: number; containers: number }
-interface ServerHealth  { name: string; cpu: number; ram: number }
+interface ServerHealth  { name: string; cpu: number; ram: number; disk: number | null }
 
 interface RecentDeployment {
   id:          string
@@ -98,11 +98,12 @@ export default function Dashboard() {
   const pollHealth = () => {
     api.get('/api/monitoring/summary')
       .then(r => r.ok ? r.json() : null)
-      .then((d: { servers: { name: string; cpu_pct: number | null; ram_pct: number | null }[] } | null) => {
+      .then((d: { servers: { name: string; cpu_pct: number | null; ram_pct: number | null; disk_pct: number | null }[] } | null) => {
         if (d) setHealth(d.servers.map(s => ({
           name: s.name,
           cpu:  Math.round(s.cpu_pct ?? 0),
           ram:  Math.round(s.ram_pct ?? 0),
+          disk: s.disk_pct != null ? Math.round(s.disk_pct) : null,
         })))
       })
       .catch(() => {})
@@ -132,6 +133,18 @@ export default function Dashboard() {
     return () => { clearInterval(t1); clearInterval(t2); clearInterval(t3); clearInterval(t4); clearInterval(t5) }
   }, [])
 
+  // Fleet averages — computed from health (per-server latest heartbeat)
+  const onlineHealth = health.filter(s => s.cpu > 0 || s.ram > 0)
+  const avg = (vals: (number | null)[]) => {
+    const valid = vals.filter((v): v is number => v !== null)
+    return valid.length ? Math.round(valid.reduce((a, b) => a + b, 0) / valid.length) : null
+  }
+  const fleetCpu  = avg(onlineHealth.map(s => s.cpu))
+  const fleetRam  = avg(onlineHealth.map(s => s.ram))
+  const fleetDisk = avg(onlineHealth.map(s => s.disk))
+  const criticalCount = alerts.filter(a => a.severity === 'critical').length
+  const warningCount  = alerts.filter(a => a.severity === 'warning').length
+
   return (
     <div className="p-6 space-y-6 max-w-6xl">
 
@@ -158,6 +171,34 @@ export default function Dashboard() {
           </div>
         ))}
       </div>
+
+      {/* Fleet Overview */}
+      {health.length > 0 && (
+        <div className="sp-card">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-4">Fleet Overview</h2>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
+            <FleetMetric label="Avg CPU" value={fleetCpu} unit="%" servers={onlineHealth.length} />
+            <FleetMetric label="Avg RAM" value={fleetRam} unit="%" servers={onlineHealth.length} />
+            <FleetMetric label="Avg Disk" value={fleetDisk} unit="%" servers={onlineHealth.length} />
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-2">Active Alerts</p>
+              {criticalCount === 0 && warningCount === 0 ? (
+                <p className="text-green-400 text-sm font-semibold">All clear</p>
+              ) : (
+                <div className="space-y-1">
+                  {criticalCount > 0 && (
+                    <p className="text-red-400 text-sm font-bold">{criticalCount} critical</p>
+                  )}
+                  {warningCount > 0 && (
+                    <p className="text-yellow-400 text-sm font-semibold">{warningCount} warning</p>
+                  )}
+                </div>
+              )}
+              <p className="text-[10px] text-slate-600 mt-1">{onlineHealth.length} server{onlineHealth.length !== 1 ? 's' : ''} reporting</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Status + Alerts row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -295,6 +336,42 @@ export default function Dashboard() {
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
+
+function FleetMetric({ label, value, unit, servers }: {
+  label:   string
+  value:   number | null
+  unit:    string
+  servers: number
+}) {
+  const pct = value ?? 0
+  const color = pct >= 85 ? 'bg-red-500'    :
+                pct >= 70 ? 'bg-yellow-500'  :
+                            'bg-green-500'
+  const textColor = pct >= 85 ? 'text-red-400'    :
+                    pct >= 70 ? 'text-yellow-400'  :
+                                'text-green-400'
+  return (
+    <div>
+      <div className="flex items-baseline justify-between mb-1">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{label}</p>
+        {value !== null
+          ? <p className={`text-lg font-bold ${textColor}`}>{value}{unit}</p>
+          : <p className="text-slate-600 text-sm">—</p>
+        }
+      </div>
+      <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all duration-500 ${color}`}
+          style={{ width: `${Math.min(pct, 100)}%` }}
+        />
+      </div>
+      <p className="text-[10px] text-slate-600 mt-1">
+        {value !== null ? (pct >= 85 ? 'critical' : pct >= 70 ? 'elevated' : 'normal') : 'no data'}
+        {' · '}{servers} server{servers !== 1 ? 's' : ''}
+      </p>
+    </div>
+  )
+}
 
 type RowStatus = 'ok' | 'error' | 'checking'
 

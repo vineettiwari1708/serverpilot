@@ -1,5 +1,5 @@
 FROM docker:cli
-RUN apk add --no-cache nodejs
+RUN apk add --no-cache nodejs postgresql-client
 WORKDIR /agent
 COPY agent.js ./
 ENV CONTROL_URL=http://sp-backend:8081

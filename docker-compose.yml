@@ -61,6 +61,8 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: sp-frontend
+    ports:
+      - "8082:80"
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.frontend.rule=PathPrefix(`/`)"
@@ -107,6 +109,28 @@ services:
     networks:
       - sp-net
 
+  # ── Local Agent ────────────────────────────────────────────────
+  agent:
+    build:
+      context: ./agent
+      dockerfile: Dockerfile
+    container_name: sp-agent-local
+    environment:
+      - CONTROL_URL=http://sp-backend:8081
+      - AGENT_SECRET=${AGENT_SECRET:-dev-agent-secret-change-in-prod}
+      - AGENT_TOKEN=${AGENT_TOKEN:-0c46da3f-5096-4861-be40-959bc3f2e540}
+      - HEARTBEAT_INTERVAL=30000
+      - DEPLOY_DIR=/opt/serverpilot/apps
+      - BACKUP_DIR=/opt/serverpilot/backups
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - sp-backups:/opt/serverpilot/backups
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - sp-net
+
 networks:
   sp-net:
     driver: bridge
@@ -114,3 +138,4 @@ networks:
 volumes:
   postgres_data:
   redis_data:
+  sp-backups:

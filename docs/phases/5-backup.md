@@ -1,97 +1,92 @@
 # Phase 5 — Backup + Restore
 
 **Status:** DONE  
-**Goal:** Schedule and run backups of databases, application configs, and Docker volumes. Store them on the dedicated Backup Server. Restore with a safe confirmation workflow.
+**Goal:** Schedule and run backups of databases and files. The agent executes the backup job and stores the file on a persistent volume. Restore with a safe confirmation workflow.
 
 ---
 
-## Backup Server (VM 4)
+## How It Works
 
-The Backup Server is an isolated Linux VM that only receives backup files. It does not run Docker workloads and is not exposed to the internet.
-
-```
-IP: 10.10.0.13
-Role: Backup storage only
-Agent: sp-agent (backup mode)
-Storage: /var/backups/serverpilot/
-```
-
----
-
-## What Gets Backed Up
-
-| Type | Method | Location |
-|------|--------|----------|
-| PostgreSQL database | `pg_dump` — proper dump, not file copy | `/var/backups/serverpilot/db/` |
-| Application compose files | File copy | `/var/backups/serverpilot/compose/` |
-| Environment configs | File copy | `/var/backups/serverpilot/env/` |
-| Docker named volumes | `docker run --volumes-from` + tar | `/var/backups/serverpilot/volumes/` |
-| Application metadata | JSON export from DB | `/var/backups/serverpilot/meta/` |
-
----
-
-## Backup Flow
+There is no separate Backup Server. The local agent (`sp-agent-local`) executes backup jobs directly and stores files in the `sp-backups` Docker named volume mounted at `/opt/serverpilot/backups/`.
 
 ```
-Control Server schedules backup job
+Dashboard (user creates backup job)
         │
         ▼
-Backup Agent (on source server)
-  → pg_dump for database backups
-  → tar + gzip for volumes/files
-  → SHA256 checksum of archive
-        │
-        ▼
-Transfer to Backup Server (scp / rsync over SSH)
-        │
-        ▼
-Backup Server Agent
-  → Verifies checksum
-  → Stores in dated directory
-  → Updates backup record
+POST /api/backups  { server_id, type, target }
         │
         ▼
 Control Server
-  → Marks backup SUCCESS or FAILED
-  → Creates notification
+  → Inserts row: backup_jobs { status: "pending" }
+        │
+        ▼ (agent polls every 30s)
+Agent (sp-agent-local)
+  → GET /api/agent/backups
+  → Executes backup based on type
+  → Saves file to /opt/serverpilot/backups/<filename>
+  → Reports status: success / failed
+        │
+        ▼
+Control Server
+  → Updates backup_jobs: status, file_path, size_bytes
 ```
 
 ---
 
-## Backup Schedule
+## Backup Types
 
-Backups can be:
-- **Manual**: triggered from dashboard
-- **Scheduled**: cron-style (e.g., `0 2 * * *` = daily at 2am)
-- **Pre-deployment**: automatically before every deploy
+| Type | Method | Target format |
+|------|--------|---------------|
+| `postgres-docker` | `docker exec` inside DB container | `docker+postgres://user:pass@containerName/dbName` |
+| `postgres` | Direct TCP connection | `postgres://user:pass@host:5432/dbName` |
+| `files` | `tar -czf` | Absolute path on agent host |
+
+### postgres-docker (recommended for Docker-hosted DBs)
+
+The agent runs `pg_dump` inside the target container via `docker exec` — no network routing needed, works even when the DB container is on a different Docker network:
+
+```bash
+docker exec -e PGPASSWORD='<pass>' <container> pg_dump -U <user> -d <db> -F p > /opt/serverpilot/backups/<file>.sql
+```
+
+Agent requires the Docker socket: `/var/run/docker.sock` must be mounted (it is, via docker-compose.yml).
 
 ---
 
-## Retention Policy
+## Backup File Location
 
-```
-Daily backups:   keep 7 days
-Weekly backups:  keep 4 weeks
-Monthly backups: keep 3 months
+- **Inside agent container:** `/opt/serverpilot/backups/`
+- **Docker volume:** `serverpilot_sp-backups`
+
+Retrieve a file:
+
+```bash
+# List backup files
+docker exec sp-agent-local ls /opt/serverpilot/backups
+
+# Copy to host
+docker cp sp-agent-local:/opt/serverpilot/backups/<filename> .
 ```
 
-Old backups are deleted automatically by the backup agent.
+Files persist across agent container restarts (named volume).
 
 ---
 
-## Backup Record
+## Backup Record (database)
 
 ```json
 {
-  "id":           "bak_xyz",
-  "type":         "postgres",
-  "source_server": "docker-host-1",
-  "target":       "backup-server",
-  "size_bytes":   1048576,
-  "checksum":     "sha256:abc123...",
-  "status":       "success",
-  "path":         "/var/backups/serverpilot/db/2026-08-20_0200_app-db.sql.gz",
-  "created_at":   "2026-08-20T02:00:00Z"
+  "id":          "bak_xyz",
+  "server_id":   "srv_abc",
+  "server_name": "localhost",
+  "type":        "postgres-docker",
+  "direction":   "backup",
+  "target":      "docker+postgres://erpnew:***@erpnew-erpnew-db-1/erpnew",
+  "status":      "success",
+  "file_path":   "/opt/serverpilot/backups/2026-08-21_erpnew.sql",
+  "size_bytes":  1048576,
+  "created_at":  "2026-08-21T10:00:00Z",
+  "finished_at": "2026-08-21T10:00:03Z"
 }
 ```
 
@@ -102,29 +97,67 @@ Old backups are deleted automatically by the backup agent.
 Restore requires **explicit user confirmation** before any data is overwritten.
 
 ```
-1. User selects backup from list
-2. User selects target server and restore type
+1. User selects a successful backup from the list
+2. Clicks "Restore"
 3. Dashboard shows WARNING: "This will overwrite existing data"
-4. User types "CONFIRM" to proceed
-5. Control server validates backup checksum
-6. Agent transfers backup from Backup Server
-7. Agent stops application containers
-8. Agent restores (pg_restore for DB, tar extract for volumes)
-9. Agent starts containers
-10. Health check runs
-11. Result recorded in audit log
+4. User sends { confirm: "CONFIRM" } to proceed
+5. Control server creates a new backup_jobs row (direction: "restore")
+6. Agent picks it up and runs pg_restore / tar extract
+7. Result recorded in backup_jobs log
 ```
 
 ---
 
-## New API Endpoints
+## API Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/backups` | List all backups |
-| POST | `/api/backups` | Create manual backup |
-| GET | `/api/backups/:id` | Backup detail + checksum |
-| POST | `/api/backups/:id/restore` | Initiate restore |
+| GET | `/api/backups` | List all backup jobs |
+| POST | `/api/backups` | Create manual backup job |
+| GET | `/api/backups/:id` | Backup detail + log |
+| POST | `/api/backups/:id/restore` | Initiate restore (requires `{ confirm: "CONFIRM" }`) |
 | GET | `/api/backup-schedules` | List schedules |
-| POST | `/api/backup-schedules` | Create schedule |
+| POST | `/api/backup-schedules` | Create schedule `{ server_id, type, target, interval_min }` |
+| PATCH | `/api/backup-schedules/:id` | Enable / disable schedule |
 | DELETE | `/api/backup-schedules/:id` | Delete schedule |
+
+---
+
+## Database Tables
+
+```sql
+CREATE TABLE backup_jobs (
+  id           TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  server_id    TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+  server_name  TEXT NOT NULL,
+  type         TEXT NOT NULL CHECK (type IN ('postgres','postgres-docker','files')),
+  direction    TEXT NOT NULL DEFAULT 'backup' CHECK (direction IN ('backup','restore')),
+  target       TEXT NOT NULL,
+  backup_dir   TEXT NOT NULL DEFAULT '/opt/serverpilot/backups',
+  source_file  TEXT DEFAULT '',
+  status       TEXT NOT NULL DEFAULT 'pending'
+               CHECK (status IN ('pending','running','success','failed')),
+  file_path    TEXT DEFAULT '',
+  size_bytes   BIGINT DEFAULT 0,
+  checksum     TEXT DEFAULT '',
+  log          TEXT DEFAULT '',
+  triggered_by TEXT,
+  created_at   TIMESTAMPTZ DEFAULT NOW(),
+  finished_at  TIMESTAMPTZ
+);
+
+CREATE TABLE backup_schedules (
+  id           TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  server_id    TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+  server_name  TEXT NOT NULL,
+  type         TEXT NOT NULL CHECK (type IN ('postgres','postgres-docker','files')),
+  target       TEXT NOT NULL,
+  backup_dir   TEXT NOT NULL DEFAULT '/opt/serverpilot/backups',
+  label        TEXT DEFAULT '',
+  interval_min INT NOT NULL DEFAULT 1440,
+  enabled      BOOLEAN NOT NULL DEFAULT true,
+  last_run     TIMESTAMPTZ,
+  next_run     TIMESTAMPTZ DEFAULT NOW(),
+  created_at   TIMESTAMPTZ DEFAULT NOW()
+);
+```

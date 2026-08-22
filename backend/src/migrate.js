@@ -144,7 +144,7 @@ const MIGRATIONS = [
         id           TEXT        PRIMARY KEY DEFAULT gen_random_uuid()::text,
         server_id    TEXT        NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
         server_name  TEXT        NOT NULL,
-        type         TEXT        NOT NULL CHECK (type IN ('postgres','files')),
+        type         TEXT        NOT NULL CHECK (type IN ('postgres','postgres-docker','files')),
         direction    TEXT        NOT NULL DEFAULT 'backup'
                                  CHECK (direction IN ('backup','restore')),
         target       TEXT        NOT NULL,
@@ -172,7 +172,7 @@ const MIGRATIONS = [
         id           TEXT        PRIMARY KEY DEFAULT gen_random_uuid()::text,
         server_id    TEXT        NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
         server_name  TEXT        NOT NULL,
-        type         TEXT        NOT NULL CHECK (type IN ('postgres','files')),
+        type         TEXT        NOT NULL CHECK (type IN ('postgres','postgres-docker','files')),
         target       TEXT        NOT NULL,
         backup_dir   TEXT        NOT NULL DEFAULT '/opt/serverpilot/backups',
         label        TEXT        DEFAULT '',

@@ -330,13 +330,28 @@ async function executeBackup(job) {
 
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
   const safeName = job.target.replace(/[^a-z0-9]/gi, '_').slice(0, 40)
-  const ext = job.type === 'postgres' ? '.dump' : '.tar.gz'
+  const ext = job.type === 'files' ? '.tar.gz' : '.sql'
   const filename = `${job.type}-${safeName}-${stamp}${ext}`
   const filePath = path.join(dir, filename)
 
   let cmd
   if (job.type === 'postgres') {
-    cmd = `pg_dump -Fc "${job.target}" -f "${filePath}"`
+    // Direct connection: target is a full postgres:// URL
+    cmd = `pg_dump -F p "${job.target}" -f "${filePath}"`
+  } else if (job.type === 'postgres-docker') {
+    // Docker exec: target is docker+postgres://user:pass@containerName/dbName
+    let parsed
+    try { parsed = new URL(job.target.replace('docker+postgres://', 'http://')) }
+    catch (e) {
+      await backupLog(job.id, `Error: invalid target — use docker+postgres://user:pass@containerName/dbName`)
+      return backupStatus(job.id, 'failed')
+    }
+    const container = parsed.hostname
+    const user      = parsed.username
+    const pass      = decodeURIComponent(parsed.password)
+    const db        = parsed.pathname.slice(1)
+    // docker exec runs pg_dump inside the DB container; output is redirected to agent's filesystem
+    cmd = `docker exec -e PGPASSWORD='${pass.replace(/'/g, "'\\''")}' ${container} pg_dump -U ${user} -d ${db} -F p > "${filePath}"`
   } else {
     cmd = `tar -czf "${filePath}" "${job.target}"`
   }

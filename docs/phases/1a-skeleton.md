@@ -75,17 +75,14 @@ backend/src/
 ## How to Run
 
 ```bash
-# Terminal 1 — backend + databases
 cd d:/Project/serverpilot
-docker compose up backend postgres redis --build
-
-# Terminal 2 — frontend (hot reload)
-cd d:/Project/serverpilot/frontend
-npm install
-npm run dev
+docker compose up -d --build
 ```
 
-Open: `http://localhost:5173`
+Open: `http://localhost:8082`
+
+The full stack (backend, frontend, postgres, redis, traefik, agent) runs via Docker Compose.  
+Frontend is served by nginx on port 8082; backend API is on port 8081.
 
 ---
 

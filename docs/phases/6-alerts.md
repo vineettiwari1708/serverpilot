@@ -96,27 +96,34 @@ Data retention: last 7 days at 30s resolution, then aggregated to 5min averages 
 
 ```sql
 CREATE TABLE alerts (
-  id           TEXT PRIMARY KEY,
-  server_id    TEXT REFERENCES servers(id),
-  metric       TEXT NOT NULL,
-  value        FLOAT,
-  threshold    FLOAT,
-  severity     TEXT,
-  status       TEXT DEFAULT 'open',
-  message      TEXT,
-  created_at   TIMESTAMPTZ DEFAULT NOW(),
-  resolved_at  TIMESTAMPTZ
+  id              TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  server_id       TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+  server_name     TEXT NOT NULL,
+  metric          TEXT NOT NULL,
+  value           FLOAT NOT NULL,
+  threshold       FLOAT NOT NULL,
+  severity        TEXT NOT NULL CHECK (severity IN ('warning','critical')),
+  status          TEXT NOT NULL DEFAULT 'open'
+                  CHECK (status IN ('open','acknowledged','resolved')),
+  message         TEXT NOT NULL,
+  created_at      TIMESTAMPTZ DEFAULT NOW(),
+  acknowledged_at TIMESTAMPTZ,
+  resolved_at     TIMESTAMPTZ
 );
+```
 
--- Metric history (from every heartbeat)
-CREATE TABLE server_metrics (
-  id          BIGSERIAL PRIMARY KEY,
-  server_id   TEXT REFERENCES servers(id),
-  cpu         FLOAT,
-  memory      FLOAT,
-  disk        FLOAT,
-  load_avg    FLOAT,
-  recorded_at TIMESTAMPTZ DEFAULT NOW()
+Metric history is stored in the **`heartbeats`** table (created in Phase 2), not a separate `server_metrics` table:
+
+```sql
+-- Already exists from Phase 2:
+CREATE TABLE heartbeats (
+  id           BIGSERIAL PRIMARY KEY,
+  server_id    TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+  cpu_pct      FLOAT,
+  ram_pct      FLOAT,
+  disk_pct     FLOAT,
+  docker_count INT DEFAULT 0,
+  recorded_at  TIMESTAMPTZ DEFAULT NOW()
 );
 ```
 

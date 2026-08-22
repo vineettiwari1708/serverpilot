@@ -183,24 +183,34 @@ export default function Backups() {
                 </div>
                 <div>
                   <label className="block text-xs text-slate-500 mb-1">Type *</label>
-                  <select value={jType} onChange={e => setJType(e.target.value)}
+                  <select value={jType} onChange={e => { setJType(e.target.value); setJTarget('') }}
                     className="w-full bg-sp-hover border border-sp-border rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-blue-500">
-                    <option value="postgres">PostgreSQL (pg_dump)</option>
+                    <option value="postgres-docker">PostgreSQL via Docker (recommended)</option>
+                    <option value="postgres">PostgreSQL direct (pg_dump URL)</option>
                     <option value="files">Files (tar.gz)</option>
                   </select>
                 </div>
-                <div>
+                <div className="md:col-span-2">
                   <label className="block text-xs text-slate-500 mb-1">
-                    {jType === 'postgres' ? 'Database URL or name *' : 'Path to backup *'}
+                    {jType === 'postgres-docker' ? 'Target *' : jType === 'postgres' ? 'Database URL *' : 'Path to backup *'}
                   </label>
                   <input value={jTarget} onChange={e => setJTarget(e.target.value)} required
-                    placeholder={jType === 'postgres' ? 'postgres://user:pass@localhost/mydb' : '/var/data/myapp'}
+                    placeholder={
+                      jType === 'postgres-docker' ? 'docker+postgres://user:pass@containerName/dbName' :
+                      jType === 'postgres' ? 'postgres://user:pass@localhost/mydb' : '/var/data/myapp'
+                    }
                     className="w-full bg-sp-hover border border-sp-border rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-500" />
+                  {jType === 'postgres-docker' && (
+                    <p className="mt-1 text-[11px] text-slate-600">
+                      Example: <span className="font-mono text-slate-500">docker+postgres://erpnew:erpnew123@erpnew-erpnew-db-1/erpnew</span>
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-xs text-slate-500 mb-1">Backup Directory</label>
                   <input value={jDir} onChange={e => setJDir(e.target.value)}
                     className="w-full bg-sp-hover border border-sp-border rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-500" />
+                  <p className="mt-1 text-[11px] text-slate-600">Files saved inside the agent container at this path.</p>
                 </div>
               </div>
               <button type="submit" disabled={jBusy}
@@ -209,6 +219,14 @@ export default function Backups() {
               </button>
             </form>
           )}
+
+          {/* Storage info */}
+          <div className="rounded-lg border border-slate-700 bg-slate-800/60 px-4 py-3 text-xs text-slate-400 space-y-1">
+            <p className="font-semibold text-slate-300">Backup file location</p>
+            <p>Files are saved inside the agent container at <span className="font-mono text-blue-400">/opt/serverpilot/backups/</span> (Docker volume <span className="font-mono text-blue-400">serverpilot_sp-backups</span>).</p>
+            <p className="text-slate-500">To copy a file to your machine: <span className="font-mono">docker exec sp-agent-local ls /opt/serverpilot/backups</span></p>
+            <p className="text-slate-500">Then: <span className="font-mono">docker cp sp-agent-local:/opt/serverpilot/backups/&lt;filename&gt; .</span></p>
+          </div>
 
           {loading ? (
             <div className="sp-card text-center text-slate-500 py-10">Loading…</div>
@@ -224,7 +242,7 @@ export default function Backups() {
                     <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
                     <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Server</th>
                     <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Type</th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Target</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">File</th>
                     <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Size</th>
                     <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Started</th>
                     <th className="px-4 py-3" />
@@ -239,8 +257,13 @@ export default function Backups() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-slate-400 text-xs font-mono">{j.server_name}</td>
-                      <td className="px-4 py-3 text-slate-400 text-xs">{j.type} {j.direction !== 'backup' ? `(${j.direction})` : ''}</td>
-                      <td className="px-4 py-3 text-slate-500 text-xs font-mono max-w-[200px] truncate">{j.target}</td>
+                      <td className="px-4 py-3 text-slate-400 text-xs">{j.type}{j.direction !== 'backup' ? ` (${j.direction})` : ''}</td>
+                      <td className="px-4 py-3 text-xs max-w-[260px]">
+                        {j.file_path
+                          ? <span className="font-mono text-blue-400 truncate block" title={j.file_path}>{j.file_path.split('/').pop()}</span>
+                          : <span className="text-slate-600">—</span>
+                        }
+                      </td>
                       <td className="px-4 py-3 text-slate-500 text-xs">{fmtSize(j.size_bytes)}</td>
                       <td className="px-4 py-3 text-slate-500 text-xs">{new Date(j.created_at).toLocaleString()}</td>
                       <td className="px-4 py-3 text-right">
