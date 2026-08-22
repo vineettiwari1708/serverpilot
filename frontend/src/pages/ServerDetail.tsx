@@ -30,17 +30,21 @@ interface Command {
 }
 
 interface ServerInfo {
-  id:           string
-  name:         string
-  hostname:     string
-  ip:           string | null
-  tags:         string[]
-  status:       'online' | 'offline' | 'pending'
-  last_seen:    string | null
-  cpu_pct:      number | null
-  ram_pct:      number | null
-  disk_pct:     number | null
-  docker_count: number | null
+  id:             string
+  name:           string
+  hostname:       string
+  ip:             string | null
+  tags:           string[]
+  status:         'online' | 'offline' | 'pending'
+  last_seen:      string | null
+  cpu_pct:        number | null
+  ram_pct:        number | null
+  disk_pct:       number | null
+  docker_count:   number | null
+  req_per_sec:    number | null
+  error_rate_pct: number | null
+  avg_latency_ms: number | null
+  p95_latency_ms: number | null
 }
 
 interface DetailResponse {
@@ -50,10 +54,14 @@ interface DetailResponse {
 }
 
 interface MetricPoint {
-  time:     string
-  cpu_pct:  number | null
-  ram_pct:  number | null
-  disk_pct: number | null
+  time:           string
+  cpu_pct:        number | null
+  ram_pct:        number | null
+  disk_pct:       number | null
+  req_per_sec:    number | null
+  error_rate_pct: number | null
+  avg_latency_ms: number | null
+  p95_latency_ms: number | null
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -124,12 +132,17 @@ export default function ServerDetail() {
     try {
       const res = await api.get(`/api/servers/${id}/metrics?limit=60`)
       if (!res.ok) return
-      const d = await res.json() as { metrics: { cpu_pct: number|null; ram_pct: number|null; disk_pct: number|null; recorded_at: string }[] }
+      type RawMetric = MetricPoint & { recorded_at: string }
+      const d = await res.json() as { metrics: RawMetric[] }
       setMetrics(d.metrics.map(m => ({
-        time:     fmtTime(m.recorded_at),
-        cpu_pct:  m.cpu_pct,
-        ram_pct:  m.ram_pct,
-        disk_pct: m.disk_pct,
+        time:           fmtTime(m.recorded_at),
+        cpu_pct:        m.cpu_pct,
+        ram_pct:        m.ram_pct,
+        disk_pct:       m.disk_pct,
+        req_per_sec:    m.req_per_sec,
+        error_rate_pct: m.error_rate_pct,
+        avg_latency_ms: m.avg_latency_ms,
+        p95_latency_ms: m.p95_latency_ms,
       })))
     } finally {
       setMLoading(false)
@@ -226,14 +239,25 @@ export default function ServerDetail() {
           <h1 className="text-xl font-bold text-white">{server.name}</h1>
           <p className="text-slate-500 text-sm font-mono">{server.hostname}{server.ip ? ` · ${server.ip}` : ''}</p>
         </div>
-        <div className="ml-auto flex gap-6">
-          <Metric label="CPU"  value={server.cpu_pct} />
-          <Metric label="RAM"  value={server.ram_pct} />
-          <Metric label="Disk" value={server.disk_pct} />
-          <div className="text-center">
-            <p className="text-2xl font-bold text-purple-400">{server.docker_count ?? 0}</p>
-            <p className="text-[10px] text-slate-600 uppercase tracking-wider">containers</p>
+        <div className="ml-auto flex flex-col gap-3 items-end">
+          <div className="flex gap-6">
+            <Metric label="CPU"  value={server.cpu_pct} />
+            <Metric label="RAM"  value={server.ram_pct} />
+            <Metric label="Disk" value={server.disk_pct} />
+            <div className="text-center">
+              <p className="text-2xl font-bold text-purple-400">{server.docker_count ?? 0}</p>
+              <p className="text-[10px] text-slate-600 uppercase tracking-wider">containers</p>
+            </div>
           </div>
+          {server.req_per_sec != null && (
+            <div className="flex gap-5 border-t border-sp-border pt-2.5">
+              <AppMetric label="Req/s"    value={`${server.req_per_sec}`}       />
+              <AppMetric label="Errors"   value={`${server.error_rate_pct ?? 0}%`} warn={(server.error_rate_pct ?? 0) > 5} />
+              <AppMetric label="Avg"      value={`${server.avg_latency_ms ?? 0}ms`} warn={(server.avg_latency_ms ?? 0) > 500} />
+              <AppMetric label="P95"      value={`${server.p95_latency_ms ?? 0}ms`} warn={(server.p95_latency_ms ?? 0) > 1000} />
+              <DiagBadge cpu={server.cpu_pct} reqPerSec={server.req_per_sec} errPct={server.error_rate_pct} latency={server.avg_latency_ms} />
+            </div>
+          )}
         </div>
         {server.last_seen && (
           <p className="text-[11px] text-slate-700 self-end">
@@ -345,37 +369,84 @@ export default function ServerDetail() {
             ) : metrics.length === 0 ? (
               <p className="text-slate-600 text-sm py-6 text-center">No metric history yet. Metrics are recorded on each heartbeat (every 30s).</p>
             ) : (
-              <div className="space-y-6">
+              <div className="space-y-8">
                 <div className="flex items-center justify-between">
                   <p className="text-xs text-slate-500">Last {metrics.length} heartbeats (oldest → newest)</p>
                   <p className="text-[10px] text-slate-700">refreshes every 30s</p>
                 </div>
-                <ResponsiveContainer width="100%" height={260}>
-                  <LineChart data={metrics} margin={{ top: 4, right: 12, left: -20, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-                    <XAxis
-                      dataKey="time"
-                      tick={{ fill: '#64748b', fontSize: 10 }}
-                      axisLine={false} tickLine={false}
-                      interval="preserveStartEnd"
-                    />
-                    <YAxis
-                      domain={[0, 100]}
-                      tick={{ fill: '#64748b', fontSize: 10 }}
-                      axisLine={false} tickLine={false}
-                      unit="%"
-                    />
-                    <Tooltip
-                      contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 8, fontSize: 12 }}
-                      labelStyle={{ color: '#94a3b8' }}
-                      formatter={(v) => `${v}%`}
-                    />
-                    <Legend wrapperStyle={{ fontSize: 11, color: '#64748b' }} />
-                    <Line type="monotone" dataKey="cpu_pct"  name="CPU"  stroke="#3b82f6" strokeWidth={2} dot={false} connectNulls />
-                    <Line type="monotone" dataKey="ram_pct"  name="RAM"  stroke="#8b5cf6" strokeWidth={2} dot={false} connectNulls />
-                    <Line type="monotone" dataKey="disk_pct" name="Disk" stroke="#f59e0b" strokeWidth={2} dot={false} connectNulls />
-                  </LineChart>
-                </ResponsiveContainer>
+
+                {/* Infrastructure metrics */}
+                <div>
+                  <p className="text-[10px] text-slate-600 uppercase tracking-wider mb-3">Infrastructure — CPU / RAM / Disk</p>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <LineChart data={metrics} margin={{ top: 4, right: 12, left: -20, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                      <XAxis dataKey="time" tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                      <YAxis domain={[0, 100]} tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} unit="%" />
+                      <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 8, fontSize: 12 }} labelStyle={{ color: '#94a3b8' }} formatter={(v) => `${v}%`} />
+                      <Legend wrapperStyle={{ fontSize: 11, color: '#64748b' }} />
+                      <Line type="monotone" dataKey="cpu_pct"  name="CPU"  stroke="#3b82f6" strokeWidth={2} dot={false} connectNulls />
+                      <Line type="monotone" dataKey="ram_pct"  name="RAM"  stroke="#8b5cf6" strokeWidth={2} dot={false} connectNulls />
+                      <Line type="monotone" dataKey="disk_pct" name="Disk" stroke="#f59e0b" strokeWidth={2} dot={false} connectNulls />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* App metrics — only shown when data is present */}
+                {metrics.some(m => m.req_per_sec != null) && (
+                  <div>
+                    <p className="text-[10px] text-slate-600 uppercase tracking-wider mb-3">Application — Req/s & Error Rate</p>
+                    <ResponsiveContainer width="100%" height={180}>
+                      <LineChart data={metrics} margin={{ top: 4, right: 12, left: -20, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                        <XAxis dataKey="time" tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                        <YAxis yAxisId="rps" tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} />
+                        <YAxis yAxisId="err" orientation="right" tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} unit="%" />
+                        <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 8, fontSize: 12 }} labelStyle={{ color: '#94a3b8' }} />
+                        <Legend wrapperStyle={{ fontSize: 11, color: '#64748b' }} />
+                        <Line yAxisId="rps" type="monotone" dataKey="req_per_sec"    name="Req/s"      stroke="#22d3ee" strokeWidth={2} dot={false} connectNulls />
+                        <Line yAxisId="err" type="monotone" dataKey="error_rate_pct" name="Error %"    stroke="#f87171" strokeWidth={2} dot={false} connectNulls />
+                      </LineChart>
+                    </ResponsiveContainer>
+
+                    <p className="text-[10px] text-slate-600 uppercase tracking-wider mb-3 mt-6">Application — Latency</p>
+                    <ResponsiveContainer width="100%" height={160}>
+                      <LineChart data={metrics} margin={{ top: 4, right: 12, left: -20, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                        <XAxis dataKey="time" tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                        <YAxis tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} unit="ms" />
+                        <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 8, fontSize: 12 }} labelStyle={{ color: '#94a3b8' }} formatter={(v) => `${v}ms`} />
+                        <Legend wrapperStyle={{ fontSize: 11, color: '#64748b' }} />
+                        <Line type="monotone" dataKey="avg_latency_ms" name="Avg latency" stroke="#a78bfa" strokeWidth={2} dot={false} connectNulls />
+                        <Line type="monotone" dataKey="p95_latency_ms" name="P95 latency" stroke="#fb923c" strokeWidth={2} dot={false} connectNulls strokeDasharray="5 3" />
+                      </LineChart>
+                    </ResponsiveContainer>
+
+                    {/* Fault vs Load diagnosis */}
+                    {metrics.length > 0 && (() => {
+                      const latest = metrics[metrics.length - 1]
+                      const diag = diagnose(
+                        server.cpu_pct, latest.req_per_sec,
+                        latest.error_rate_pct, latest.avg_latency_ms
+                      )
+                      return diag ? (
+                        <div className={`mt-4 flex items-start gap-3 rounded-xl border px-4 py-3 ${
+                          diag.kind === 'load'    ? 'border-blue-500/30 bg-blue-500/5' :
+                          diag.kind === 'fault'   ? 'border-red-500/30  bg-red-500/5' :
+                          'border-slate-700 bg-sp-hover'
+                        }`}>
+                          <span className="text-lg shrink-0">{diag.icon}</span>
+                          <div>
+                            <p className={`text-xs font-bold uppercase tracking-wider ${
+                              diag.kind === 'load' ? 'text-blue-400' : diag.kind === 'fault' ? 'text-red-400' : 'text-slate-400'
+                            }`}>{diag.label}</p>
+                            <p className="text-[11px] text-slate-500 mt-0.5">{diag.desc}</p>
+                          </div>
+                        </div>
+                      ) : null
+                    })()}
+                  </div>
+                )}
               </div>
             )
           )}
@@ -614,5 +685,57 @@ function CommandStatusBadge({ status }: { status: string }) {
       {status}
     </span>
   )
+}
+
+function AppMetric({ label, value, warn = false }: { label: string; value: string; warn?: boolean }) {
+  return (
+    <div className="text-center">
+      <p className={`text-base font-bold font-mono ${warn ? 'text-red-400' : 'text-cyan-400'}`}>{value}</p>
+      <p className="text-[9px] text-slate-600 uppercase tracking-wider">{label}</p>
+    </div>
+  )
+}
+
+function DiagBadge({ cpu, reqPerSec, errPct, latency }: {
+  cpu: number | null; reqPerSec: number | null; errPct: number | null; latency: number | null
+}) {
+  const d = diagnose(cpu, reqPerSec, errPct, latency)
+  if (!d) return null
+  return (
+    <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-semibold ${
+      d.kind === 'load'  ? 'border-blue-500/40  text-blue-400  bg-blue-500/10' :
+      d.kind === 'fault' ? 'border-red-500/40   text-red-400   bg-red-500/10' :
+                           'border-slate-600    text-slate-400'
+    }`}>
+      <span>{d.icon}</span> {d.label}
+    </div>
+  )
+}
+
+function diagnose(
+  cpu: number | null,
+  reqPerSec: number | null,
+  errPct: number | null,
+  latency: number | null,
+): { kind: 'load' | 'fault' | 'ok'; icon: string; label: string; desc: string } | null {
+  if (reqPerSec == null) return null
+  const highCpu  = (cpu    ?? 0) > 70
+  const highErr  = (errPct ?? 0) > 5
+  const highLat  = (latency ?? 0) > 1000
+  const hasTraffic = reqPerSec > 0.1
+
+  if (highCpu && hasTraffic && !highErr && !highLat) {
+    return { kind: 'load', icon: '📈', label: 'System Load', desc: 'High CPU driven by real traffic — consider scaling out replicas.' }
+  }
+  if (highErr && !highCpu) {
+    return { kind: 'fault', icon: '🔥', label: 'App Fault', desc: 'High error rate with low CPU — likely a bug, crash, or DB error.' }
+  }
+  if (highLat && !highCpu && !highErr) {
+    return { kind: 'fault', icon: '⏱️', label: 'Slow Response', desc: 'High latency without CPU pressure — check DB queries or external calls.' }
+  }
+  if (highCpu && highErr) {
+    return { kind: 'fault', icon: '💥', label: 'Overload + Errors', desc: 'CPU saturated and errors rising — app may be failing under load.' }
+  }
+  return { kind: 'ok', icon: '✅', label: 'Healthy', desc: 'Traffic, errors, and latency are within normal range.' }
 }
 

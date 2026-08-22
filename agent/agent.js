@@ -63,6 +63,47 @@ function getDiskPct() {
   })
 }
 
+// Fetch app-level metrics from a monitored application.
+// Supports two modes:
+//   APP_METRICS_URL      = HTTP endpoint to GET (e.g. http://host:5001/metrics)
+//   APP_METRICS_CONTAINER = docker exec into container and fetch from localhost
+const APP_METRICS_URL       = process.env.APP_METRICS_URL
+const APP_METRICS_CONTAINER = process.env.APP_METRICS_CONTAINER
+
+function fetchAppMetrics() {
+  if (APP_METRICS_URL) {
+    return new Promise(resolve => {
+      const url = new URL(APP_METRICS_URL)
+      const lib = url.protocol === 'https:' ? https : http
+      const req = lib.get(APP_METRICS_URL, res => {
+        let raw = ''
+        res.on('data', d => { raw += d })
+        res.on('end', () => {
+          try { resolve(JSON.parse(raw)) } catch { resolve(null) }
+        })
+      })
+      req.setTimeout(5000, () => { req.destroy(); resolve(null) })
+      req.on('error', () => resolve(null))
+    })
+  }
+
+  if (APP_METRICS_CONTAINER) {
+    return new Promise(resolve => {
+      // Use docker exec + node to hit the /metrics endpoint from inside the container
+      const script = `const h=require('http');h.get('http://localhost:5001/metrics',r=>{let b='';r.on('data',d=>b+=d);r.on('end',()=>process.stdout.write(b))}).on('error',e=>process.exit(1))`
+      exec(`docker exec ${APP_METRICS_CONTAINER} node -e "${script}"`,
+        { timeout: 6000 },
+        (err, stdout) => {
+          if (err || !stdout.trim()) return resolve(null)
+          try { resolve(JSON.parse(stdout)) } catch { resolve(null) }
+        }
+      )
+    })
+  }
+
+  return Promise.resolve(null)
+}
+
 // Returns array of { name, image, status, ports }
 function getContainers() {
   return new Promise((resolve) => {
@@ -114,16 +155,21 @@ function request(method, path, body, token) {
 
 async function sendHeartbeat() {
   try {
-    const [cpu_pct, disk_pct, containers] = await Promise.all([getCpuPct(), getDiskPct(), getContainers()])
-    const ram_pct       = getRamPct()
-    const docker_count  = containers.filter(c => /^Up/i.test(c.status)).length
+    const [cpu_pct, disk_pct, containers, app_metrics] = await Promise.all([
+      getCpuPct(), getDiskPct(), getContainers(), fetchAppMetrics(),
+    ])
+    const ram_pct      = getRamPct()
+    const docker_count = containers.filter(c => /^Up/i.test(c.status)).length
 
     const { status } = await request('POST', '/api/agent/heartbeat', {
-      cpu_pct, ram_pct, disk_pct, docker_count, containers,
+      cpu_pct, ram_pct, disk_pct, docker_count, containers, app_metrics,
     }, AGENT_TOKEN)
 
     if (status === 204) {
-      console.log(`[${new Date().toISOString()}] heartbeat OK  cpu=${cpu_pct}% ram=${ram_pct}% disk=${disk_pct}% containers=${containers.length}`)
+      const appStr = app_metrics
+        ? ` req/s=${app_metrics.req_per_sec} err%=${app_metrics.error_rate_pct} p95=${app_metrics.p95_latency_ms}ms`
+        : ''
+      console.log(`[${new Date().toISOString()}] heartbeat OK  cpu=${cpu_pct}% ram=${ram_pct}% disk=${disk_pct}% containers=${containers.length}${appStr}`)
     } else {
       console.error(`[${new Date().toISOString()}] heartbeat failed status=${status}`)
     }

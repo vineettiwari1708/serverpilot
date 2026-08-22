@@ -25,7 +25,8 @@ module.exports = function containersRouter(pool) {
       if (sv.length === 0) return res.status(404).json({ error: 'server not found' })
 
       const { rows: hb } = await pool.query(`
-        SELECT cpu_pct, ram_pct, disk_pct, docker_count
+        SELECT cpu_pct, ram_pct, disk_pct, docker_count,
+               req_per_sec, error_rate_pct, avg_latency_ms, p95_latency_ms
         FROM heartbeats WHERE server_id = $1
         ORDER BY recorded_at DESC LIMIT 1
       `, [req.params.id])

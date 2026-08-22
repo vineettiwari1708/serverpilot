@@ -114,7 +114,9 @@ module.exports = function alertsRouter(pool) {
     const limit = Math.min(parseInt(req.query.limit || '60', 10), 500)
     try {
       const { rows } = await pool.query(`
-        SELECT cpu_pct, ram_pct, disk_pct, docker_count, recorded_at
+        SELECT cpu_pct, ram_pct, disk_pct, docker_count,
+               req_per_sec, error_rate_pct, avg_latency_ms, p95_latency_ms,
+               recorded_at
         FROM heartbeats
         WHERE server_id = $1
         ORDER BY recorded_at DESC

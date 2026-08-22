@@ -80,6 +80,12 @@ SEED_ADMIN_NAME=Admin
 # Telegram notifications
 TELEGRAM_BOT_TOKEN=your-bot-token-from-botfather
 TELEGRAM_CHAT_ID=your-chat-id
+
+# App-level metrics — pick ONE of these two options:
+# Option A: docker exec (no network changes needed — agent uses Docker socket)
+APP_METRICS_CONTAINER=erpnew-erpnew-backend-1
+# Option B: direct HTTP (agent must be on the same Docker network as the app)
+# APP_METRICS_URL=http://erpnew-erpnew-backend-1:5001/metrics
 ```
 
 ---
@@ -103,9 +109,96 @@ Setup:
 4. Restart backend: `docker compose up -d backend`
 
 ### Monitoring
-- Live CPU/RAM/disk/container metrics per server
-- Sparkline charts — last 60 heartbeat samples
+
+#### Infrastructure Metrics (always available)
+- Live CPU, RAM, disk, Docker container count per server
+- Line charts — last 60 heartbeat samples (refreshes every 30s)
 - Alert badges on offline servers
+
+#### Application Metrics (when `/metrics` endpoint is configured)
+
+ServerPilot collects 4 app-level metrics from the monitored application on every heartbeat:
+
+| Metric | What it means |
+|---|---|
+| **Req/s** | HTTP requests per second (60-second sliding window) |
+| **Errors %** | Percentage of requests returning 4xx or 5xx status codes |
+| **Avg latency** | Mean response time in milliseconds |
+| **P95 latency** | 95th percentile response time — 95% of requests finished within this time |
+
+These appear in the server header and in two extra charts in the Metrics tab (Req/s & Error Rate, and Latency).
+
+**Reading the numbers together:**
+
+| CPU | Req/s | Errors | Latency | Diagnosis |
+|---|---|---|---|---|
+| 90% | 500 | 0% | 50ms | 📈 **System Load** — healthy, scale out replicas |
+| 90% | 10 | 80% | 5000ms | 💥 **Overload + Errors** — app failing under load |
+| 10% | 5 | 100% | 7ms | 🔥 **App Fault** — fast but rejecting everything (auth error, bug, bad config) |
+| 10% | 5 | 0% | 8000ms | ⏱️ **Slow Response** — DB query bottleneck, external API timeout |
+| Any | Any | <5% | <500ms | ✅ **Healthy** — normal operation |
+
+> **Key insight:** CPU alone cannot tell you whether the problem is load or fault. A server at 90% CPU with 0 errors is just busy — scale it. The same server at 90% CPU with 80% errors has a bug — scaling will only make it worse.
+
+**How it works:**
+
+1. The monitored app exposes a `GET /metrics` endpoint (no auth needed)
+2. The agent calls `docker exec <container> node -e "fetch localhost:5001/metrics"` every 30s — no network changes required, uses the Docker socket
+3. Metrics are stored alongside CPU/RAM/disk in the `heartbeats` table
+4. Dashboard shows the fault vs load diagnosis badge in real time
+
+**Setting up `/metrics` on your app:**
+
+Add this middleware to your Express backend:
+
+```javascript
+// src/middleware/metrics.js
+const WINDOW = 60 * 1000
+const _times = [], _errors = [], _durations = []
+
+function cleanup() {
+  const cutoff = Date.now() - WINDOW
+  let i
+  for (i = 0; i < _times.length    && _times[i] < cutoff;       i++); if (i) _times.splice(0, i)
+  for (i = 0; i < _errors.length   && _errors[i] < cutoff;      i++); if (i) _errors.splice(0, i)
+  for (i = 0; i < _durations.length && _durations[i].t < cutoff; i++); if (i) _durations.splice(0, i)
+}
+
+function metricsMiddleware(req, res, next) {
+  if (req.path === '/metrics' || req.path === '/health') return next()
+  const start = Date.now()
+  _times.push(start)
+  res.on('finish', () => {
+    _durations.push({ t: Date.now(), ms: Date.now() - start })
+    if (res.statusCode >= 400) _errors.push(Date.now())
+  })
+  next()
+}
+
+function metricsEndpoint(_req, res) {
+  cleanup()
+  const total = _times.length, errors = _errors.length
+  const avgMs = _durations.length ? Math.round(_durations.reduce((s, d) => s + d.ms, 0) / _durations.length) : 0
+  const p95Ms = _durations.length ? [..._durations].sort((a,b)=>a.ms-b.ms)[Math.floor(_durations.length*0.95)].ms : 0
+  res.json({ window_sec: 60, requests: total, req_per_sec: parseFloat((total/60).toFixed(2)),
+             errors, error_rate_pct: total ? parseFloat(((errors/total)*100).toFixed(1)) : 0,
+             avg_latency_ms: avgMs, p95_latency_ms: p95Ms })
+}
+
+module.exports = { metricsMiddleware, metricsEndpoint }
+```
+
+```javascript
+// In server.js
+const { metricsMiddleware, metricsEndpoint } = require('./middleware/metrics')
+app.use(metricsMiddleware)
+app.get('/metrics', metricsEndpoint)
+```
+
+Then set in `.env`:
+```env
+APP_METRICS_CONTAINER=your-backend-container-name
+```
 
 ### Applications
 - Deploy Docker Compose apps to registered servers
@@ -188,11 +281,12 @@ serverpilot/
 │       ├── server.js          # Entry point
 │       ├── migrate.js         # Auto-runs DB migrations on startup
 │       ├── scheduler.js       # Backup schedule runner
-│       ├── notify.js          # Telegram notifications
-│       ├── alerts.js          # Alert threshold checks
+│       ├── notify.js          # Telegram + sendTelegram()
+│       ├── alerts.js          # Alert threshold checks + metrics history endpoint
 │       └── routes/
-│           ├── servers.js     # Server CRUD + OTP delete
-│           ├── agent.js       # Heartbeat + job endpoints
+│           ├── servers.js     # Server CRUD + OTP-secured delete
+│           ├── agent.js       # Heartbeat (stores CPU/RAM/app metrics) + job endpoints
+│           ├── containers.js  # Server detail + container actions
 │           ├── backups.js
 │           ├── webhooks.js
 │           └── ...
@@ -201,7 +295,7 @@ serverpilot/
 │       ├── pages/
 │       │   ├── Dashboard.tsx
 │       │   ├── Servers.tsx
-│       │   ├── ServerDetail.tsx   # OTP delete modal
+│       │   ├── ServerDetail.tsx   # OTP delete modal, app metrics header + charts
 │       │   ├── Monitoring.tsx
 │       │   ├── Alerts.tsx
 │       │   ├── Backups.tsx
@@ -211,7 +305,7 @@ serverpilot/
 │       │   └── Sidebar.tsx        # Collapsible sidebar (icon mode)
 │       └── services/api.ts
 ├── agent/
-│   └── agent.js               # Heartbeat, deployments, backups
+│   └── agent.js               # Heartbeat, app metrics polling, deployments, backups
 └── docker-compose.yml
 ```
 

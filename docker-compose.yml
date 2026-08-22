@@ -124,6 +124,11 @@ services:
       - HEARTBEAT_INTERVAL=30000
       - DEPLOY_DIR=/opt/serverpilot/apps
       - BACKUP_DIR=/opt/serverpilot/backups
+      # App metrics — set one of these to collect req/s, error rate, latency
+      # APP_METRICS_URL: HTTP endpoint on an accessible network (needs network access)
+      # APP_METRICS_CONTAINER: docker exec into this container to fetch metrics
+      - APP_METRICS_CONTAINER=${APP_METRICS_CONTAINER:-}
+      - APP_METRICS_URL=${APP_METRICS_URL:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - sp-backups:/opt/serverpilot/backups

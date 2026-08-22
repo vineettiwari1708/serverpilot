@@ -39,8 +39,9 @@ module.exports = function agentRouter(pool) {
   // POST /api/agent/heartbeat
   // Accepts metrics + optional container list.
   router.post('/api/agent/heartbeat', agentAuth(pool), async (req, res) => {
-    const { cpu_pct, ram_pct, disk_pct, docker_count, containers } = req.body || {}
+    const { cpu_pct, ram_pct, disk_pct, docker_count, containers, app_metrics } = req.body || {}
     const serverId = req.server.id
+    const am = app_metrics || {}
 
     try {
       // Update last_seen
@@ -50,9 +51,16 @@ module.exports = function agentRouter(pool) {
 
       // Record heartbeat metrics
       await pool.query(
-        `INSERT INTO heartbeats (server_id, cpu_pct, ram_pct, disk_pct, docker_count)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [serverId, cpu_pct ?? null, ram_pct ?? null, disk_pct ?? null, docker_count ?? 0]
+        `INSERT INTO heartbeats
+           (server_id, cpu_pct, ram_pct, disk_pct, docker_count,
+            req_per_sec, error_rate_pct, avg_latency_ms, p95_latency_ms)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [
+          serverId,
+          cpu_pct ?? null, ram_pct ?? null, disk_pct ?? null, docker_count ?? 0,
+          am.req_per_sec ?? null, am.error_rate_pct ?? null,
+          am.avg_latency_ms ?? null, am.p95_latency_ms ?? null,
+        ]
       )
 
       // Sync container state

@@ -241,6 +241,15 @@ const MIGRATIONS = [
     `,
   },
   {
+    name: '017_add_app_metrics',
+    sql: `
+      ALTER TABLE heartbeats ADD COLUMN IF NOT EXISTS req_per_sec    FLOAT;
+      ALTER TABLE heartbeats ADD COLUMN IF NOT EXISTS error_rate_pct FLOAT;
+      ALTER TABLE heartbeats ADD COLUMN IF NOT EXISTS avg_latency_ms FLOAT;
+      ALTER TABLE heartbeats ADD COLUMN IF NOT EXISTS p95_latency_ms FLOAT;
+    `,
+  },
+  {
     name: '003_create_heartbeats',
     sql: `
       CREATE TABLE IF NOT EXISTS heartbeats (
